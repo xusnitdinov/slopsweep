@@ -122,8 +122,8 @@ SlopSweep is a **Next.js website**.
 
 Production: configure on Vercel after push. Demo works with no secrets; Connect needs OAuth env vars.
 
-1. Create a GitHub OAuth App with callback `https://YOUR_DOMAIN/api/auth/callback/github`
-2. Set on Vercel: `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_URL`
+1. Create a GitHub OAuth App with callback `https://slopsweep.vercel.app/api/auth/callback/github`
+2. Set on Vercel: `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_URL` (`https://slopsweep.vercel.app`)
 
 ```bash
 npx vercel env add AUTH_SECRET production
