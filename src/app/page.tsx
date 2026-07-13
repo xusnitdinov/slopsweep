@@ -1,4 +1,5 @@
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
+import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
 import Link from "next/link";
 
@@ -60,6 +61,7 @@ function FlowDiagram() {
           </text>
           {i < 3 && (
             <line
+              className="flow-line"
               x1={n.x + 124}
               y1={72}
               x2={n.x + 176}
@@ -124,19 +126,21 @@ function IsoStack() {
         }}
       />
       {[
-        { y: 28, rotate: -8, label: "README.md", tint: "#f4f4f5" },
-        { y: 58, rotate: -3, label: "PR #482", tint: "#fff" },
-        { y: 88, rotate: 4, label: "tips stripped", tint: "#09090b" },
+        { y: 28, rotate: -8, label: "README.md", tint: "#f4f4f5", delay: "0s" },
+        { y: 58, rotate: -3, label: "PR #482", tint: "#fff", delay: "0.4s" },
+        { y: 88, rotate: 4, label: "tips stripped", tint: "#09090b", delay: "0.8s" },
       ].map((card, i) => (
         <div
           key={card.label}
-          className="absolute left-1/2 w-56 -translate-x-1/2 rounded-lg border border-line px-4 py-3 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.45)]"
+          className="animate-float absolute left-1/2 w-56 -translate-x-1/2 rounded-lg border border-line px-4 py-3 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.45)]"
           style={{
             top: card.y,
             background: card.tint,
-            transform: `translateX(-50%) rotate(${card.rotate}deg)`,
+            ["--r" as string]: `${card.rotate}deg`,
+            animationDelay: card.delay,
             zIndex: i + 1,
             color: i === 2 ? "#fff" : "#09090b",
+            transform: `translateX(-50%) rotate(${card.rotate}deg)`,
           }}
         >
           <p className="font-mono text-[11px] opacity-70">{card.label}</p>
@@ -168,7 +172,7 @@ export default function HomePage() {
             }}
           />
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 lg:grid-cols-2 lg:gap-16 lg:py-24">
-            <div className="max-w-xl">
+            <Reveal variant="left" className="max-w-xl">
               <p className="text-sm font-medium text-muted">SlopSweep</p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
                 Sweep Copilot tips out of PRs and READMEs
@@ -204,24 +208,29 @@ export default function HomePage() {
                   <dd className="mt-1 text-sm font-medium">Never deleted</dd>
                 </div>
               </dl>
-            </div>
-            <IsoStack />
+            </Reveal>
+            <Reveal variant="scale" delay={120}>
+              <IsoStack />
+            </Reveal>
           </div>
         </section>
 
         <section id="how" className="border-b border-line bg-surface/40">
           <div className="mx-auto max-w-6xl px-6 py-16">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              How it works
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-              One path from OAuth to a confirmed edit. Nothing runs on your
-              repos until you click Clean.
-            </p>
-            <div className="mt-10 rounded-xl border border-line bg-white p-6">
+            <Reveal>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                How it works
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+                One path from OAuth to a confirmed edit. Nothing runs on your
+                repos until you click Clean.
+              </p>
+            </Reveal>
+            <Reveal delay={80} className="mt-10 rounded-xl border border-line bg-white p-6">
               <FlowDiagram />
-            </div>
+            </Reveal>
             <ol className="mt-10 grid gap-8 sm:grid-cols-3">
+              <Reveal delay={0} variant="up">
               <li>
                 <span className="font-mono text-sm text-muted">01</span>
                 <p className="mt-2 font-medium">Connect GitHub</p>
@@ -231,14 +240,19 @@ export default function HomePage() {
                   read PRs and optionally update bodies / READMEs.
                 </p>
               </li>
+              </Reveal>
+              <Reveal delay={100} variant="up">
               <li>
                 <span className="font-mono text-sm text-muted">02</span>
                 <p className="mt-2 font-medium">Scan PRs &amp; READMEs</p>
                 <p className="mt-1 text-sm leading-6 text-muted">
                   Pick repos. Scan recent PRs for tip markers, and check each
-                  README for tips, placeholders, and missing basics.
+                  README for tips, placeholders, and missing basics. Missing
+                  READMEs can be drafted by AI from repo metadata.
                 </p>
               </li>
+              </Reveal>
+              <Reveal delay={200} variant="up">
               <li>
                 <span className="font-mono text-sm text-muted">03</span>
                 <p className="mt-2 font-medium">Preview, then clean</p>
@@ -247,13 +261,14 @@ export default function HomePage() {
                   report for your notes.
                 </p>
               </li>
+              </Reveal>
             </ol>
           </div>
         </section>
 
         <section className="border-b border-line">
           <div className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-2">
-            <div>
+            <Reveal>
               <h2 className="text-2xl font-semibold tracking-tight">
                 What gets removed
               </h2>
@@ -267,19 +282,20 @@ export default function HomePage() {
                   "Raycast / Slack / Teams / VS Code promo lines",
                   "JetBrains and Eclipse tip variants",
                   "README health: missing file, TODOs, AI filler",
-                ].map((item) => (
-                  <li
-                    key={item}
-                    className="flex gap-3 rounded-lg border border-line bg-white px-4 py-3"
-                  >
-                    <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-ink text-center text-xs leading-5 text-white">
-                      ✓
-                    </span>
-                    <span>{item}</span>
-                  </li>
+                  "AI draft README when a repo has none",
+                ].map((item, i) => (
+                  <Reveal key={item} delay={i * 60} variant="left">
+                    <li className="flex gap-3 rounded-lg border border-line bg-white px-4 py-3">
+                      <span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-ink text-center text-xs leading-5 text-white">
+                        ✓
+                      </span>
+                      <span>{item}</span>
+                    </li>
+                  </Reveal>
                 ))}
               </ul>
-            </div>
+            </Reveal>
+            <Reveal delay={100} variant="scale">
             <div className="rounded-xl border border-line bg-white shadow-sm">
               <div className="flex items-center gap-2 border-b border-line px-4 py-3">
                 <span className="h-2.5 w-2.5 rounded-full bg-strike/80" />
@@ -306,12 +322,13 @@ Fixed the login redirect.`}</pre>
                 </div>
               </div>
             </div>
+            </Reveal>
           </div>
         </section>
 
         <section className="border-b border-line bg-surface/40">
           <div className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-2">
-            <div>
+            <Reveal>
               <h2 className="text-2xl font-semibold tracking-tight">
                 Safety model
               </h2>
@@ -319,20 +336,24 @@ Fixed the login redirect.`}</pre>
                 Built to be boringly safe. Scan never writes. Clean is opt-in
                 and scoped.
               </p>
-            </div>
-            <SafetyDiagram />
+            </Reveal>
+            <Reveal delay={80} variant="left">
+              <SafetyDiagram />
+            </Reveal>
           </div>
         </section>
 
         <section className="border-b border-line">
           <div className="mx-auto max-w-6xl px-6 py-16">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Dashboard toolkit
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-              More than a single scan button — filters, README health, bulk
-              actions, and account switching.
-            </p>
+            <Reveal>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Dashboard toolkit
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+                More than a single scan button — filters, README health, AI
+                drafts, bulk actions, and account switching.
+              </p>
+            </Reveal>
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[
                 {
@@ -344,49 +365,50 @@ Fixed the login redirect.`}</pre>
                   body: "Score each README: missing file, tip residue, TODOs, thin docs.",
                 },
                 {
-                  title: "Bulk clean",
-                  body: "Confirm once, clean many PR bodies. Tip-clean READMEs one by one.",
+                  title: "AI README writer",
+                  body: "No README? Generate a draft from repo metadata, preview, then commit.",
                 },
                 {
-                  title: "Export JSON",
-                  body: "Download a report of hits for audits or portfolio write-ups.",
+                  title: "Bulk clean",
+                  body: "Confirm once, clean many PR bodies. Tip-clean READMEs one by one.",
                 },
                 {
                   title: "Change account",
                   body: "Switch GitHub users without hunting through browser settings.",
                 },
                 {
-                  title: "Repo filters",
-                  body: "Search, public/private, select visible — scan only what you need.",
+                  title: "Export JSON",
+                  body: "Download a report of hits for audits or portfolio write-ups.",
                 },
-              ].map((card) => (
-                <div
-                  key={card.title}
-                  className="rounded-xl border border-line bg-white p-5"
-                >
-                  <h3 className="font-medium">{card.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted">{card.body}</p>
-                </div>
+              ].map((card, i) => (
+                <Reveal key={card.title} delay={i * 50} variant="up">
+                  <div className="h-full rounded-xl border border-line bg-white p-5">
+                    <h3 className="font-medium">{card.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted">{card.body}</p>
+                  </div>
+                </Reveal>
               ))}
             </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-6 py-16">
-          <div className="rounded-2xl border border-line bg-ink px-8 py-10 text-white sm:px-12">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Ready to clean your history?
-            </h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-white/70">
-              Sign in, pick repos, scan. You stay in control of every write.
-            </p>
-            <div className="mt-6 max-w-xs">
-              <GitHubSignInButton
-                label="Open dashboard"
-                className="!border-white/20 !bg-white !text-ink hover:!bg-white/90"
-              />
+          <Reveal variant="scale">
+            <div className="rounded-2xl border border-line bg-ink px-8 py-10 text-white sm:px-12">
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Ready to clean your history?
+              </h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-white/70">
+                Sign in, pick repos, scan. You stay in control of every write.
+              </p>
+              <div className="mt-6 max-w-xs">
+                <GitHubSignInButton
+                  label="Open dashboard"
+                  className="!border-white/20 !bg-white !text-ink hover:!bg-white/90"
+                />
+              </div>
             </div>
-          </div>
+          </Reveal>
         </section>
       </main>
     </div>

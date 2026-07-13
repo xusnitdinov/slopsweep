@@ -67,8 +67,11 @@ export async function POST(request: Request) {
       octokit,
       fullName,
       file.path,
-      file.sha,
       cleaned,
+      {
+        sha: file.sha,
+        message: "chore: remove Copilot tip residue from README via SlopSweep",
+      },
     );
 
     return NextResponse.json({

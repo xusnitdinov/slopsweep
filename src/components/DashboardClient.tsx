@@ -103,6 +103,8 @@ export function DashboardClient({ login, avatarUrl }: Props) {
   const [cleaningKey, setCleaningKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<Hit | null>(null);
   const [readmePreview, setReadmePreview] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [includeClosed, setIncludeClosed] = useState(true);
@@ -336,6 +338,82 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       setStatus(`Cleaned README tips in ${item.repo}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "README clean failed");
+    } finally {
+      setCleaningKey(null);
+    }
+  }
+
+  async function generateReadme(item: ReadmeResult) {
+    setGeneratingKey(item.repo);
+    setError(null);
+    try {
+      const res = await fetch("/api/readme/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: item.repo }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Generate failed");
+      setDrafts((prev) => ({ ...prev, [item.repo]: data.content }));
+      setReadmePreview(item.repo);
+      setStatus(
+        data.mode === "openai"
+          ? `AI drafted README for ${item.repo} (OpenAI)`
+          : `Drafted README for ${item.repo} from repo metadata`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generate failed");
+    } finally {
+      setGeneratingKey(null);
+    }
+  }
+
+  async function commitGeneratedReadme(item: ReadmeResult) {
+    const content = drafts[item.repo];
+    if (!content) return;
+    if (
+      !confirm(
+        `Commit README.md to ${item.repo}? This creates or updates the file on GitHub.`,
+      )
+    ) {
+      return;
+    }
+    setCleaningKey(`commit:${item.repo}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/readme/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: item.repo, content }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Commit failed");
+      setReadmeResults((prev) =>
+        prev.map((r) =>
+          r.repo === item.repo
+            ? {
+                ...r,
+                path: data.path ?? "README.md",
+                content: data.content,
+                cleaned: data.cleaned ?? data.content,
+                tipContaminated: Boolean(data.tipContaminated),
+                matches: data.matches ?? [],
+                removedChars: data.removedChars ?? 0,
+                issues: data.issues ?? [],
+                score: data.score ?? 90,
+                htmlUrl: data.htmlUrl ?? r.htmlUrl,
+              }
+            : r,
+        ),
+      );
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[item.repo];
+        return next;
+      });
+      setStatus(`Committed README.md to ${item.repo}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Commit failed");
     } finally {
       setCleaningKey(null);
     }
@@ -906,12 +984,15 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                     </div>
                   ) : (
                     <ul className="space-y-3">
-                      {visibleReadmes.map((item) => {
+                      {visibleReadmes.map((item, idx) => {
                         const open = readmePreview === item.repo;
+                        const missing = item.issues.some((i) => i.id === "missing");
+                        const draft = drafts[item.repo];
                         return (
                           <li
                             key={item.repo}
-                            className="rounded-md border border-line bg-surface/20 p-4"
+                            className="animate-rise-in rounded-md border border-line bg-surface/20 p-4"
+                            style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
@@ -959,7 +1040,7 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                                 </ul>
                               </div>
                               <div className="flex flex-wrap gap-2">
-                                {item.content && (
+                                {(item.content || draft) && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -968,6 +1049,39 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                                     className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
                                   >
                                     {open ? "Hide" : "View"}
+                                  </button>
+                                )}
+                                {(missing ||
+                                  item.issues.some(
+                                    (i) => i.id === "thin" || i.id === "too-short",
+                                  )) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void generateReadme(item)}
+                                    disabled={generatingKey === item.repo}
+                                    className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
+                                  >
+                                    {generatingKey === item.repo
+                                      ? "Writing…"
+                                      : missing
+                                        ? "AI write README"
+                                        : "AI improve"}
+                                  </button>
+                                )}
+                                {draft && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void commitGeneratedReadme(item)
+                                    }
+                                    disabled={
+                                      cleaningKey === `commit:${item.repo}`
+                                    }
+                                    className="rounded-md border border-ok/40 bg-ok-soft px-3 py-1.5 text-sm font-medium text-ok disabled:opacity-50"
+                                  >
+                                    {cleaningKey === `commit:${item.repo}`
+                                      ? "Committing…"
+                                      : "Commit README"}
                                   </button>
                                 )}
                                 {item.tipContaminated && (
@@ -1006,16 +1120,30 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                                     Current
                                   </p>
                                   <pre className="max-h-56 overflow-auto rounded-md border border-line bg-white p-3 font-mono text-xs whitespace-pre-wrap">
-                                    {item.content || "(empty)"}
+                                    {item.content || "(no README yet)"}
                                   </pre>
                                 </div>
                                 <div>
                                   <p className="mb-1 text-xs font-medium text-ok">
-                                    After tip clean
+                                    {draft ? "AI draft" : "After tip clean"}
                                   </p>
-                                  <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
-                                    {item.cleaned || "(empty)"}
-                                  </pre>
+                                  {draft ? (
+                                    <textarea
+                                      value={draft}
+                                      onChange={(e) =>
+                                        setDrafts((prev) => ({
+                                          ...prev,
+                                          [item.repo]: e.target.value,
+                                        }))
+                                      }
+                                      rows={14}
+                                      className="max-h-56 w-full overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs outline-none focus:border-ok/40"
+                                    />
+                                  ) : (
+                                    <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                                      {item.cleaned || "(empty)"}
+                                    </pre>
+                                  )}
                                 </div>
                               </div>
                             )}

@@ -206,9 +206,8 @@ export async function updateRepoReadme(
   octokit: Octokit,
   fullName: string,
   path: string,
-  sha: string,
   content: string,
-  message?: string,
+  options?: { sha?: string | null; message?: string },
 ): Promise<{ htmlUrl: string }> {
   const [owner, repo] = fullName.split("/");
   if (!owner || !repo) throw new Error("Invalid repo");
@@ -217,9 +216,11 @@ export async function updateRepoReadme(
     owner,
     repo,
     path,
-    message: message ?? "chore: remove Copilot tip residue from README via SlopSweep",
+    message:
+      options?.message ??
+      "chore: update README via SlopSweep",
     content: Buffer.from(content, "utf8").toString("base64"),
-    sha,
+    ...(options?.sha ? { sha: options.sha } : {}),
   });
 
   return {

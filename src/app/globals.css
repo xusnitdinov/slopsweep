@@ -44,3 +44,91 @@ body {
   background: #dbeafe;
   color: var(--ink);
 }
+
+/* Scroll / entrance reveals */
+.reveal {
+  opacity: 0;
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.reveal-up {
+  transform: translateY(28px);
+}
+
+.reveal-left {
+  transform: translateX(-24px);
+}
+
+.reveal-scale {
+  transform: scale(0.96) translateY(12px);
+}
+
+.reveal-fade {
+  transform: none;
+  filter: blur(4px);
+}
+
+.reveal-in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(var(--r, 0deg));
+  }
+  50% {
+    transform: translateX(-50%) translateY(-10px) rotate(var(--r, 0deg));
+  }
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-float {
+  animation: float-y 5s ease-in-out infinite;
+}
+
+.animate-rise-in {
+  animation: rise-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.flow-line {
+  stroke-dasharray: 6 6;
+  animation: dash-flow 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal-in {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  .animate-float,
+  .animate-rise-in,
+  .flow-line {
+    animation: none !important;
+  }
+}
