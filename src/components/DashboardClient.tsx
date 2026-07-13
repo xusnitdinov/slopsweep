@@ -136,11 +136,10 @@ export function DashboardClient({ login }: Props) {
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-muted">
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted">
             Signed in as{" "}
-            <span className="font-semibold text-ink">@{login}</span>. Scan is
-            read-only. Clean only edits PR text after you confirm.
+            <span className="font-medium text-ink">@{login}</span>
           </p>
         </div>
         <form action={signOutAction}>
@@ -154,12 +153,12 @@ export function DashboardClient({ login }: Props) {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-strike/30 bg-strike-soft px-4 py-3 text-sm text-strike">
+        <div className="rounded-md border border-strike/20 bg-strike-soft px-4 py-3 text-sm text-strike">
           {error}
         </div>
       )}
       {status && (
-        <div className="rounded-xl border border-ok/30 bg-ok-soft px-4 py-3 text-sm text-ok">
+        <div className="rounded-md border border-ok/20 bg-ok-soft px-4 py-3 text-sm text-ok">
           {status}
         </div>
       )}
@@ -195,15 +194,15 @@ export function DashboardClient({ login }: Props) {
         {loadingRepos ? (
           <p className="text-sm text-muted">Loading repos…</p>
         ) : (
-          <ul className="max-h-64 overflow-y-auto rounded-xl border border-line bg-white divide-y divide-line">
+          <ul className="max-h-64 overflow-y-auto rounded-md border border-line bg-white divide-y divide-line">
             {repos.map((repo) => (
               <li key={repo.id}>
-                <label className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-bg-2/50">
+                <label className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-surface/80">
                   <input
                     type="checkbox"
                     checked={selected.has(repo.fullName)}
                     onChange={() => toggleRepo(repo.fullName)}
-                    className="accent-[var(--accent)]"
+                    className="accent-ink"
                   />
                   <span className="font-mono text-sm">{repo.fullName}</span>
                   {repo.private && (
@@ -231,7 +230,7 @@ export function DashboardClient({ login }: Props) {
             type="button"
             onClick={() => void runScan()}
             disabled={scanning || selected.size === 0}
-            className="rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
           >
             {scanning
               ? "Scanning…"
@@ -249,7 +248,7 @@ export function DashboardClient({ login }: Props) {
               return (
                 <li
                   key={key}
-                  className="rounded-xl border border-line bg-white p-4"
+                  className="rounded-md border border-line bg-white p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -257,7 +256,7 @@ export function DashboardClient({ login }: Props) {
                         href={hit.htmlUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-medium text-ink hover:text-accent"
+                        className="font-medium text-ink hover:underline"
                       >
                         {hit.repo}#{hit.number}
                       </a>
@@ -278,7 +277,7 @@ export function DashboardClient({ login }: Props) {
                               : hit,
                           )
                         }
-                        className="rounded-full border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+                        className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
                       >
                         Diff
                       </button>
@@ -294,7 +293,7 @@ export function DashboardClient({ login }: Props) {
                           }
                         }}
                         disabled={cleaningKey === key}
-                        className="rounded-full bg-ink px-3 py-1.5 text-sm font-semibold text-bg disabled:opacity-50"
+                        className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
                       >
                         {cleaningKey === key ? "Cleaning…" : "Clean"}
                       </button>
@@ -307,7 +306,7 @@ export function DashboardClient({ login }: Props) {
                           <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-strike">
                             Before
                           </p>
-                          <pre className="max-h-56 overflow-auto rounded-lg border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                          <pre className="max-h-56 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
                             {hit.body}
                           </pre>
                         </div>
@@ -315,7 +314,7 @@ export function DashboardClient({ login }: Props) {
                           <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-ok">
                             After
                           </p>
-                          <pre className="max-h-56 overflow-auto rounded-lg border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
+                          <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
                             {hit.cleaned}
                           </pre>
                         </div>

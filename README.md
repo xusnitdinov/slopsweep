@@ -93,8 +93,8 @@ cp .env.example .env.local
 ```
 
 2. Create a [GitHub OAuth App](https://github.com/settings/developers) (not a PAT):
-   - **Homepage URL:** `http://localhost:3000`
-   - **Callback URL:** `http://localhost:3000/api/auth/callback/github`
+   - **Homepage URL:** `https://slopsweep.vercel.app`
+   - **Callback URL:** `https://slopsweep.vercel.app/api/auth/callback/github`
 
 3. Fill in `.env.local`:
 
