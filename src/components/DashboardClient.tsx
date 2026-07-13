@@ -358,8 +358,8 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       setReadmePreview(item.repo);
       setStatus(
         data.mode === "openai"
-          ? `AI drafted README for ${item.repo} (OpenAI)`
-          : `Drafted README for ${item.repo} from repo metadata`,
+          ? `AI drafted README for ${item.repo} (OpenAI + code scan)`
+          : `Drafted README for ${item.repo} from code + repo scan`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generate failed");
@@ -972,7 +972,8 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                       <p className="font-medium">No README scan yet</p>
                       <p className="mt-1 max-w-sm text-sm text-muted">
                         Check READMEs for missing files, tip residue, TODOs, and
-                        thin docs. Tip residue can be cleaned with a confirm.
+                        thin docs. Missing ones can be drafted by scanning the
+                        repo tree and source files.
                       </p>
                     </div>
                   ) : visibleReadmes.length === 0 ? (
