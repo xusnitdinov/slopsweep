@@ -1,6 +1,9 @@
 "use client";
 
-import { SAMPLE_CONTAMINATED_PR } from "@/lib/detectors";
+import {
+  SAMPLE_CONTAMINATED_PR,
+  detectAndClean,
+} from "@/lib/detectors";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -14,21 +17,20 @@ type DemoResult = {
 export default function DemoPage() {
   const [text, setText] = useState(SAMPLE_CONTAMINATED_PR);
   const [result, setResult] = useState<DemoResult | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  async function runDetect() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/demo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      setResult(data);
-    } finally {
-      setLoading(false);
-    }
+  function runDetect() {
+    // Runs entirely in the browser — no server / no GitHub token needed
+    const data = detectAndClean(text);
+    setResult({
+      contaminated: data.contaminated,
+      matches: data.matches.map((m) => ({
+        kind: m.kind,
+        label: m.label,
+        excerpt: m.excerpt,
+      })),
+      cleaned: data.cleaned,
+      removedChars: data.removedChars,
+    });
   }
 
   return (
@@ -66,10 +68,9 @@ export default function DemoPage() {
               <button
                 type="button"
                 onClick={runDetect}
-                disabled={loading}
-                className="rounded-sm bg-acid px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+                className="rounded-sm bg-acid px-4 py-2 text-sm font-semibold text-ink"
               >
-                {loading ? "Scanning…" : "Detect & clean"}
+                Detect & clean
               </button>
               <button
                 type="button"

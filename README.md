@@ -82,13 +82,13 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000/demo](http://localhost:3000/demo), hit **Detect & clean**, and watch the sample contaminated PR get scrubbed. Zero secrets required.
+Open [http://localhost:3000/demo](http://localhost:3000/demo), hit **Detect & clean**, and watch the sample contaminated PR get scrubbed. Zero secrets required. Detection runs in your browser.
 
 ### Option B — scan your real repos
 
 1. Create a [GitHub OAuth App](https://github.com/settings/developers)
-   - Homepage: `http://localhost:3000`
-   - Callback: `http://localhost:3000/api/auth/callback/github`
+   - Homepage: `http://localhost:3000` (or your production URL)
+   - Callback: `http://localhost:3000/api/auth/callback/github` (or `https://YOUR_DOMAIN/api/auth/callback/github`)
 2. Copy env file and fill values:
 
 ```bash
@@ -108,6 +108,39 @@ npm run dev
 ```
 
 4. Open `/` → **Sign in with GitHub** → Dashboard → select repos → **Scan** → open **Diff** → **Clean** only if you want the tip text removed.
+
+---
+
+## Deploy (public website)
+
+SlopSweep is a **Next.js website** with API routes + GitHub OAuth.
+
+| Host | Works? | Notes |
+| --- | --- | --- |
+| **GitHub Pages** (`*.github.io`) | No (full app) | Static files only — cannot run OAuth/scan/clean APIs |
+| **Vercel** | Yes (recommended) | Built for Next.js; free hobby tier |
+| **Cloudflare Pages** | Possible | Needs OpenNext adapter; more setup than Vercel |
+
+### Deploy on Vercel (recommended)
+
+1. Push to GitHub (already at [xusnitdinov/slopsweep](https://github.com/xusnitdinov/slopsweep))
+2. Import the repo at [vercel.com/new](https://vercel.com/new)
+3. Add environment variables in the Vercel project settings:
+
+| Name | Value |
+| --- | --- |
+| `AUTH_SECRET` | output of `npx auth secret` |
+| `AUTH_GITHUB_ID` | GitHub OAuth Client ID |
+| `AUTH_GITHUB_SECRET` | GitHub OAuth Client Secret |
+| `AUTH_URL` | `https://your-app.vercel.app` |
+
+4. In your [GitHub OAuth App](https://github.com/settings/developers), set:
+   - Homepage URL → `https://your-app.vercel.app`
+   - Authorization callback URL → `https://your-app.vercel.app/api/auth/callback/github`
+
+5. Redeploy. Anyone can open the site, try `/demo`, or sign in to scan their own repos.
+
+> Scan stays read-only. Clean only edits PR description text after confirm — never deletes repositories.
 
 ---
 
