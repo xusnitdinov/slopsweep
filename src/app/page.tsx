@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 
 export default function HomePage() {
   return (
@@ -54,12 +55,9 @@ export default function HomePage() {
             feature off. The junk stayed. Sweep it out — safely.
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-3">
-            <Link
-              href="/dashboard"
-              className="rounded-full bg-accent px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110"
-            >
-              Connect &amp; scan
-            </Link>
+            <div className="w-full max-w-xs sm:w-auto">
+              <GitHubSignInButton />
+            </div>
             <Link
               href="/demo"
               className="rounded-full border border-line bg-bg/80 px-6 py-3 text-sm font-semibold text-ink transition hover:border-ink/30"

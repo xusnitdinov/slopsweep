@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { signOutAction } from "@/app/actions";
 import { useCallback, useEffect, useState } from "react";
 
 type Repo = {
@@ -22,21 +22,21 @@ type Hit = {
   removedChars: number;
 };
 
-export function DashboardClient() {
-  const [login, setLogin] = useState<string | null>(null);
-  const [tokenInput, setTokenInput] = useState("");
-  const [connecting, setConnecting] = useState(false);
+type Props = {
+  login: string;
+};
+
+export function DashboardClient({ login }: Props) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hits, setHits] = useState<Hit[]>([]);
-  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [loadingRepos, setLoadingRepos] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [cleaningKey, setCleaningKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<Hit | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [includeClosed, setIncludeClosed] = useState(true);
-  const [checkingAuth, setCheckingAuth] = useState(true);
 
   const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
@@ -55,50 +55,8 @@ export function DashboardClient() {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/session");
-        const data = await res.json();
-        if (data.authenticated) {
-          setLogin(data.login);
-          await loadRepos();
-        }
-      } finally {
-        setCheckingAuth(false);
-      }
-    })();
+    void loadRepos();
   }, [loadRepos]);
-
-  async function connect() {
-    setConnecting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: tokenInput }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not connect");
-      setLogin(data.login);
-      setTokenInput("");
-      setStatus(`Connected as @${data.login}`);
-      await loadRepos();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not connect");
-    } finally {
-      setConnecting(false);
-    }
-  }
-
-  async function disconnect() {
-    await fetch("/api/session", { method: "DELETE" });
-    setLogin(null);
-    setRepos([]);
-    setHits([]);
-    setSelected(new Set());
-    setStatus(null);
-  }
 
   function toggleRepo(name: string) {
     setSelected((prev) => {
@@ -174,88 +132,25 @@ export function DashboardClient() {
     }
   }
 
-  if (checkingAuth) {
-    return <p className="text-sm text-muted">Loading…</p>;
-  }
-
-  if (!login) {
-    return (
-      <div className="mx-auto max-w-lg">
-        <h1 className="text-3xl font-extrabold tracking-tight">Connect</h1>
-        <p className="mt-3 text-muted leading-relaxed">
-          Paste a GitHub personal access token. SlopSweep uses it only to{" "}
-          <strong className="font-semibold text-ink">read</strong> your repos /
-          PRs and optionally edit PR{" "}
-          <strong className="font-semibold text-ink">descriptions</strong>. It
-          never deletes repositories.
-        </p>
-
-        <ol className="mt-6 list-decimal space-y-2 pl-5 text-sm text-muted">
-          <li>
-            Open{" "}
-            <a
-              href="https://github.com/settings/tokens/new?scopes=repo&description=SlopSweep"
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-accent underline-offset-2 hover:underline"
-            >
-              Create a classic token
-            </a>{" "}
-            (check the <code className="font-mono text-ink">repo</code> scope)
-          </li>
-          <li>Generate, copy, paste below</li>
-          <li>Token stays in an encrypted httpOnly cookie on this site</li>
-        </ol>
-
-        <label className="mt-8 mb-2 block font-mono text-[11px] uppercase tracking-wider text-muted">
-          Personal access token
-        </label>
-        <input
-          type="password"
-          value={tokenInput}
-          onChange={(e) => setTokenInput(e.target.value)}
-          placeholder="ghp_…"
-          className="w-full rounded-xl border border-line bg-white px-4 py-3 font-mono text-sm outline-none focus:border-accent"
-        />
-        {error && (
-          <p className="mt-3 text-sm text-strike">{error}</p>
-        )}
-        <button
-          type="button"
-          onClick={() => void connect()}
-          disabled={connecting || !tokenInput.trim()}
-          className="mt-4 w-full rounded-full bg-accent py-3 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {connecting ? "Connecting…" : "Connect to GitHub"}
-        </button>
-        <p className="mt-4 text-center text-sm text-muted">
-          Or{" "}
-          <Link href="/demo" className="text-accent hover:underline">
-            try the paste demo
-          </Link>{" "}
-          with no token.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">Dashboard</h1>
           <p className="mt-1 text-muted">
-            Connected as <span className="font-semibold text-ink">@{login}</span>
-            . Scan is read-only. Clean only edits PR text after you confirm.
+            Signed in as{" "}
+            <span className="font-semibold text-ink">@{login}</span>. Scan is
+            read-only. Clean only edits PR text after you confirm.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void disconnect()}
-          className="text-sm text-muted hover:text-ink"
-        >
-          Disconnect
-        </button>
+        <form action={signOutAction}>
+          <button
+            type="submit"
+            className="text-sm text-muted hover:text-ink"
+          >
+            Sign out
+          </button>
+        </form>
       </div>
 
       {error && (

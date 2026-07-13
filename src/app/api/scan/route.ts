@@ -1,15 +1,20 @@
-import { readSession } from "@/lib/session";
+import { auth } from "@/auth";
 import { getOctokit, listUserRepos, scanReposForTips } from "@/lib/github";
 import { NextResponse } from "next/server";
 
+async function getAccessToken() {
+  const session = await auth();
+  return session?.accessToken ?? null;
+}
+
 export async function GET() {
-  const session = await readSession();
-  if (!session) {
+  const token = await getAccessToken();
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const octokit = getOctokit(session.token);
+    const octokit = getOctokit(token);
     const repos = await listUserRepos(octokit, { maxRepos: 80 });
     return NextResponse.json({ repos });
   } catch (err) {
@@ -22,8 +27,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await readSession();
-  if (!session) {
+  const token = await getAccessToken();
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -55,7 +60,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const octokit = getOctokit(session.token);
+    const octokit = getOctokit(token);
     const hits = await scanReposForTips(octokit, repos, {
       prsPerRepo: Math.min(body.prsPerRepo ?? 30, 50),
       includeClosed: body.includeClosed ?? true,

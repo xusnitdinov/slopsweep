@@ -92,11 +92,20 @@ Open [http://localhost:3000/demo](http://localhost:3000/demo), hit **Detect & cl
 cp .env.example .env.local
 ```
 
-2. Set `AUTH_SECRET` (any long random string) — only used to encrypt your session cookie.
+2. Create a [GitHub OAuth App](https://github.com/settings/developers) (not a PAT):
+   - **Homepage URL:** `http://localhost:3000`
+   - **Callback URL:** `http://localhost:3000/api/auth/callback/github`
 
-3. Run `npm run dev`, open `/dashboard`, paste a GitHub [classic PAT](https://github.com/settings/tokens/new?scopes=repo&description=SlopSweep) with the `repo` scope.
+3. Fill in `.env.local`:
 
-No OAuth App. No Client ID. No callback URL.
+```env
+AUTH_SECRET=your-random-secret
+AUTH_GITHUB_ID=your-oauth-client-id
+AUTH_GITHUB_SECRET=your-oauth-client-secret
+AUTH_URL=http://localhost:3000
+```
+
+4. Run `npm run dev`, open `/dashboard`, click **Continue with GitHub**.
 
 ---
 
@@ -111,13 +120,16 @@ SlopSweep is a **Next.js website**.
 
 ### Live
 
-Production: configure on Vercel after push. Demo works with no secrets; Connect needs `AUTH_SECRET` only (encrypts the cookie that stores your GitHub token).
+Production: configure on Vercel after push. Demo works with no secrets; Connect needs OAuth env vars.
 
-No GitHub OAuth App. Users paste a personal access token on `/dashboard`.
+1. Create a GitHub OAuth App with callback `https://YOUR_DOMAIN/api/auth/callback/github`
+2. Set on Vercel: `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_URL`
 
 ```bash
-# set secret once on Vercel
 npx vercel env add AUTH_SECRET production
+npx vercel env add AUTH_GITHUB_ID production
+npx vercel env add AUTH_GITHUB_SECRET production
+npx vercel env add AUTH_URL production
 npx vercel --prod
 ```
 

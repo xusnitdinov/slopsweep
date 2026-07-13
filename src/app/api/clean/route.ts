@@ -1,11 +1,12 @@
+import { auth } from "@/auth";
 import { detectAndClean } from "@/lib/detectors";
 import { cleanPullRequestBody, getOctokit } from "@/lib/github";
-import { readSession } from "@/lib/session";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const session = await readSession();
-  if (!session) {
+  const session = await auth();
+  const token = session?.accessToken;
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const octokit = getOctokit(session.token);
+    const octokit = getOctokit(token);
     const { data: pr } = await octokit.pulls.get({
       owner,
       repo,
