@@ -1,23 +1,23 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Syne } from "next/font/google";
+import { IBM_Plex_Mono, Manrope } from "next/font/google";
 import "./globals.css";
 
-const syne = Syne({
-  variable: "--font-syne",
+const display = Manrope({
+  variable: "--font-display",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],
 });
 
-const plex = IBM_Plex_Mono({
-  variable: "--font-plex",
+const mono = IBM_Plex_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
   weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "SlopSweep — scrub Copilot junk from your PRs",
+  title: "SlopSweep — remove Copilot tip junk from PRs",
   description:
-    "Scan your GitHub repos for Copilot-injected product tips and clean them with one click. Built for the March 2026 Copilot tips incident.",
+    "Scan your GitHub pull requests for leftover Copilot product tips and strip them. Never deletes repos. Edits descriptions only.",
 };
 
 export default function RootLayout({
@@ -26,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${syne.variable} ${plex.variable} h-full`}>
+    <html lang="en" className={`${display.variable} ${mono.variable} h-full`}>
       <body className="min-h-full antialiased">{children}</body>
     </html>
   );

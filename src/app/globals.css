@@ -1,61 +1,54 @@
 @import "tailwindcss";
 
 :root {
-  --ink: #0b0e0a;
-  --ink-2: #121610;
-  --fog: #9aa392;
-  --paper: #e8efd8;
-  --acid: #c8f542;
-  --acid-dim: #8fb82e;
-  --warn: #ffb020;
-  --danger: #ff5c4d;
-  --line: rgba(200, 245, 66, 0.14);
-  --background: var(--ink);
-  --foreground: var(--paper);
+  --bg: #f7f5f1;
+  --bg-2: #efece6;
+  --ink: #141210;
+  --muted: #6b6560;
+  --line: #d9d3c9;
+  --accent: #0c6e6b;
+  --accent-soft: #d8efee;
+  --strike: #c43c2c;
+  --strike-soft: #f6e4e1;
+  --ok: #1f6b3a;
+  --ok-soft: #e2f0e6;
+  --background: var(--bg);
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
   --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-fog: var(--fog);
-  --color-paper: var(--paper);
-  --color-acid: var(--acid);
-  --color-acid-dim: var(--acid-dim);
-  --color-warn: var(--warn);
-  --color-danger: var(--danger);
+  --color-muted: var(--muted);
   --color-line: var(--line);
-  --font-sans: var(--font-syne);
-  --font-mono: var(--font-plex);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-strike: var(--strike);
+  --color-strike-soft: var(--strike-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --font-sans: var(--font-display);
+  --font-mono: var(--font-mono);
 }
 
 body {
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--font-syne), system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-display), system-ui, sans-serif;
 }
 
 ::selection {
-  background: var(--acid);
-  color: var(--ink);
+  background: var(--accent);
+  color: white;
 }
 
-@keyframes sweep {
-  from {
-    transform: translateX(-120%);
-    opacity: 0.2;
-  }
-  to {
-    transform: translateX(120%);
-    opacity: 0;
-  }
-}
-
-@keyframes fade-up {
+@keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -63,10 +56,48 @@ body {
   }
 }
 
-.animate-fade-up {
-  animation: fade-up 0.7s ease-out both;
+@keyframes strike-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
 
-.animate-sweep-beam {
-  animation: sweep 3.2s ease-in-out infinite;
+@keyframes fade-line {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-rise-delay {
+  animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
+}
+
+.redact-line {
+  position: relative;
+}
+
+.redact-line::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 55%;
+  width: 100%;
+  height: 2px;
+  background: var(--strike);
+  transform-origin: left;
+  animation: strike-in 0.7s 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.redact-fade {
+  animation: fade-line 0.8s 1.1s ease forwards;
 }

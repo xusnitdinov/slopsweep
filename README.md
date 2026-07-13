@@ -86,61 +86,40 @@ Open [http://localhost:3000/demo](http://localhost:3000/demo), hit **Detect & cl
 
 ### Option B — scan your real repos
 
-1. Create a [GitHub OAuth App](https://github.com/settings/developers)
-   - Homepage: `http://localhost:3000` (or your production URL)
-   - Callback: `http://localhost:3000/api/auth/callback/github` (or `https://YOUR_DOMAIN/api/auth/callback/github`)
-2. Copy env file and fill values:
+1. Copy env file:
 
 ```bash
 cp .env.example .env.local
 ```
 
-```env
-AUTH_SECRET=              # npx auth secret
-AUTH_GITHUB_ID=           # OAuth client ID
-AUTH_GITHUB_SECRET=       # OAuth client secret
-```
+2. Set `AUTH_SECRET` (any long random string) — only used to encrypt your session cookie.
 
-3. Run:
+3. Run `npm run dev`, open `/dashboard`, paste a GitHub [classic PAT](https://github.com/settings/tokens/new?scopes=repo&description=SlopSweep) with the `repo` scope.
 
-```bash
-npm run dev
-```
-
-4. Open `/` → **Sign in with GitHub** → Dashboard → select repos → **Scan** → open **Diff** → **Clean** only if you want the tip text removed.
+No OAuth App. No Client ID. No callback URL.
 
 ---
 
 ## Deploy (public website)
 
-SlopSweep is a **Next.js website** with API routes + GitHub OAuth.
+SlopSweep is a **Next.js website**.
 
-| Host | Works? | Notes |
-| --- | --- | --- |
-| **GitHub Pages** (`*.github.io`) | No (full app) | Static files only — cannot run OAuth/scan/clean APIs |
-| **Vercel** | Yes (recommended) | Built for Next.js; free hobby tier |
-| **Cloudflare Pages** | Possible | Needs OpenNext adapter; more setup than Vercel |
-
-### Deploy on Vercel (recommended)
-
-1. Push to GitHub (already at [xusnitdinov/slopsweep](https://github.com/xusnitdinov/slopsweep))
-2. Import the repo at [vercel.com/new](https://vercel.com/new)
-3. Add environment variables in the Vercel project settings:
-
-| Name | Value |
+| Host | Works? |
 | --- | --- |
-| `AUTH_SECRET` | output of `npx auth secret` |
-| `AUTH_GITHUB_ID` | GitHub OAuth Client ID |
-| `AUTH_GITHUB_SECRET` | GitHub OAuth Client Secret |
-| `AUTH_URL` | `https://your-app.vercel.app` |
+| **GitHub Pages** | No — needs a real server for scan/clean |
+| **Vercel** | Yes (recommended) |
 
-4. In your [GitHub OAuth App](https://github.com/settings/developers), set:
-   - Homepage URL → `https://your-app.vercel.app`
-   - Authorization callback URL → `https://your-app.vercel.app/api/auth/callback/github`
+### Live
 
-5. Redeploy. Anyone can open the site, try `/demo`, or sign in to scan their own repos.
+Production: configure on Vercel after push. Demo works with no secrets; Connect needs `AUTH_SECRET` only (encrypts the cookie that stores your GitHub token).
 
-> Scan stays read-only. Clean only edits PR description text after confirm — never deletes repositories.
+No GitHub OAuth App. Users paste a personal access token on `/dashboard`.
+
+```bash
+# set secret once on Vercel
+npx vercel env add AUTH_SECRET production
+npx vercel --prod
+```
 
 ---
 

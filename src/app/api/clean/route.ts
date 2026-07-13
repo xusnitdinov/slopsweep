@@ -1,20 +1,18 @@
-import { auth } from "@/auth";
 import { detectAndClean } from "@/lib/detectors";
 import { cleanPullRequestBody, getOctokit } from "@/lib/github";
+import { readSession } from "@/lib/session";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.accessToken) {
+  const session = await readSession();
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   let body: {
     repo?: string;
     number?: number;
-    /** If true, only return cleaned preview without writing */
     dryRun?: boolean;
-    /** Optional: use server-side re-detect from live body; or pass cleaned */
     cleaned?: string;
   };
 
@@ -39,9 +37,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const octokit = getOctokit(session.accessToken);
-
-    // Always re-fetch live body so we don't write a stale cleaned string
+    const octokit = getOctokit(session.token);
     const { data: pr } = await octokit.pulls.get({
       owner,
       repo,

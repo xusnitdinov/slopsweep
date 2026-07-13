@@ -11,10 +11,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@auth/core": "^0.41.2",
     "@octokit/rest": "^22.0.1",
+    "jose": "^6.2.3",
     "next": "16.2.10",
-    "next-auth": "^5.0.0-beta.31",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
