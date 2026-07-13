@@ -1,6 +1,6 @@
 "use client";
 
-import { signOutAction } from "@/app/actions";
+import { changeAccountAction, signOutAction } from "@/app/actions";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Repo = {
@@ -23,6 +23,20 @@ type Hit = {
   removedChars: number;
 };
 
+type ReadmeResult = {
+  repo: string;
+  path: string | null;
+  sha: string | null;
+  htmlUrl: string;
+  content: string;
+  cleaned: string;
+  tipContaminated: boolean;
+  matches: { kind: string; label: string; excerpt: string }[];
+  removedChars: number;
+  issues: { id: string; severity: string; label: string; detail: string }[];
+  score: number;
+};
+
 type ScanSummary = {
   reposScanned: number;
   prsScanned: number;
@@ -39,6 +53,7 @@ type Props = {
 
 type VisibilityFilter = "all" | "public" | "private";
 type StateFilter = "all" | "open" | "closed";
+type Tab = "prs" | "readmes";
 
 function formatRelative(dateStr: string) {
   if (!dateStr) return "";
@@ -69,15 +84,25 @@ function StatCard({
   );
 }
 
+function scoreColor(score: number) {
+  if (score >= 80) return "text-ok";
+  if (score >= 50) return "text-amber-600";
+  return "text-strike";
+}
+
 export function DashboardClient({ login, avatarUrl }: Props) {
+  const [tab, setTab] = useState<Tab>("prs");
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hits, setHits] = useState<Hit[]>([]);
+  const [readmeResults, setReadmeResults] = useState<ReadmeResult[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [scanningReadmes, setScanningReadmes] = useState(false);
   const [bulkCleaning, setBulkCleaning] = useState(false);
   const [cleaningKey, setCleaningKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<Hit | null>(null);
+  const [readmePreview, setReadmePreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [includeClosed, setIncludeClosed] = useState(true);
@@ -86,6 +111,7 @@ export function DashboardClient({ login, avatarUrl }: Props) {
   const [visibility, setVisibility] = useState<VisibilityFilter>("all");
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [lastScan, setLastScan] = useState<ScanSummary | null>(null);
+  const [onlyIssues, setOnlyIssues] = useState(true);
 
   const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
@@ -132,10 +158,23 @@ export function DashboardClient({ login, avatarUrl }: Props) {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [filteredHits]);
 
+  const visibleReadmes = useMemo(() => {
+    const list = onlyIssues
+      ? readmeResults.filter((r) => r.issues.length > 0)
+      : readmeResults;
+    return [...list].sort((a, b) => a.score - b.score);
+  }, [readmeResults, onlyIssues]);
+
   const totalChars = useMemo(
     () => hits.reduce((sum, h) => sum + h.removedChars, 0),
     [hits],
   );
+
+  const avgReadmeScore = useMemo(() => {
+    if (readmeResults.length === 0) return null;
+    const sum = readmeResults.reduce((s, r) => s + r.score, 0);
+    return Math.round(sum / readmeResults.length);
+  }, [readmeResults]);
 
   function toggleRepo(name: string) {
     setSelected((prev) => {
@@ -184,6 +223,7 @@ export function DashboardClient({ login, avatarUrl }: Props) {
         ),
         at: new Date().toISOString(),
       });
+      setTab("prs");
       setStatus(
         data.hits.length === 0
           ? `Scanned ${data.prsScanned} PRs across ${data.scanned} repos — all clean.`
@@ -193,6 +233,36 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       setError(e instanceof Error ? e.message : "Scan failed");
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function runReadmeScan() {
+    if (selected.size === 0) {
+      setError("Select at least one repository");
+      return;
+    }
+    setScanningReadmes(true);
+    setError(null);
+    setStatus(null);
+    setReadmeResults([]);
+    setReadmePreview(null);
+    try {
+      const res = await fetch("/api/readme/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repos: Array.from(selected) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "README scan failed");
+      setReadmeResults(data.results);
+      setTab("readmes");
+      setStatus(
+        `Checked ${data.scanned} README(s) — ${data.withIssues} with issues, ${data.withTips} with Copilot tips.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "README scan failed");
+    } finally {
+      setScanningReadmes(false);
     }
   }
 
@@ -226,6 +296,51 @@ export function DashboardClient({ login, avatarUrl }: Props) {
     }
   }
 
+  async function cleanReadmeTips(item: ReadmeResult) {
+    if (!item.tipContaminated) return;
+    if (
+      !confirm(
+        `Update ${item.repo}/${item.path}? Only Copilot tip text will be removed from the README.`,
+      )
+    ) {
+      return;
+    }
+    setCleaningKey(`readme:${item.repo}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/readme/clean", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: item.repo,
+          cleaned: item.cleaned,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "README clean failed");
+      setReadmeResults((prev) =>
+        prev.map((r) =>
+          r.repo === item.repo
+            ? {
+                ...r,
+                content: item.cleaned,
+                tipContaminated: false,
+                matches: [],
+                removedChars: 0,
+                issues: r.issues.filter((i) => i.id !== "copilot-tips"),
+                score: Math.min(100, r.score + 25),
+              }
+            : r,
+        ),
+      );
+      setStatus(`Cleaned README tips in ${item.repo}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "README clean failed");
+    } finally {
+      setCleaningKey(null);
+    }
+  }
+
   async function cleanAll() {
     if (filteredHits.length === 0) return;
     if (
@@ -238,6 +353,7 @@ export function DashboardClient({ login, avatarUrl }: Props) {
     setBulkCleaning(true);
     setError(null);
     let cleaned = 0;
+    const total = filteredHits.length;
     for (const hit of [...filteredHits]) {
       try {
         const res = await fetch("/api/clean", {
@@ -263,15 +379,16 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       }
     }
     setPreview(null);
-    setStatus(`Cleaned ${cleaned} of ${filteredHits.length} PR(s)`);
+    setStatus(`Cleaned ${cleaned} of ${total} PR(s)`);
     setBulkCleaning(false);
   }
 
   function exportReport() {
     const payload = {
-      scannedAt: lastScan?.at ?? new Date().toISOString(),
-      summary: lastScan,
-      hits: hits.map((h) => ({
+      scannedAt: new Date().toISOString(),
+      user: login,
+      prScan: lastScan,
+      prHits: hits.map((h) => ({
         repo: h.repo,
         number: h.number,
         title: h.title,
@@ -279,6 +396,14 @@ export function DashboardClient({ login, avatarUrl }: Props) {
         url: h.htmlUrl,
         matches: h.matches.map((m) => m.label),
         removedChars: h.removedChars,
+      })),
+      readmes: readmeResults.map((r) => ({
+        repo: r.repo,
+        path: r.path,
+        score: r.score,
+        tipContaminated: r.tipContaminated,
+        issues: r.issues,
+        url: r.htmlUrl,
       })),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -290,6 +415,11 @@ export function DashboardClient({ login, avatarUrl }: Props) {
     a.download = `slopsweep-report-${login}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function copyCleaned(text: string) {
+    void navigator.clipboard.writeText(text);
+    setStatus("Copied cleaned text to clipboard");
   }
 
   return (
@@ -311,18 +441,28 @@ export function DashboardClient({ login, avatarUrl }: Props) {
           <div>
             <p className="font-medium">@{login}</p>
             <p className="text-xs text-muted">
-              {repos.length} repos · scan is read-only
+              {repos.length} repos · scan is read-only until you clean
             </p>
           </div>
         </div>
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
-          >
-            Sign out
-          </button>
-        </form>
+        <div className="flex flex-wrap items-center gap-2">
+          <form action={changeAccountAction}>
+            <button
+              type="submit"
+              className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+            >
+              Change account
+            </button>
+          </form>
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -333,19 +473,21 @@ export function DashboardClient({ login, avatarUrl }: Props) {
           hint={`${filteredRepos.length} visible`}
         />
         <StatCard
-          label="PRs scanned"
-          value={lastScan?.prsScanned ?? "—"}
-          hint={lastScan ? `${lastScan.reposScanned} repos` : "Run a scan"}
-        />
-        <StatCard
-          label="Issues found"
+          label="PR issues"
           value={hits.length}
           hint={
-            hits.length > 0
-              ? `${totalChars.toLocaleString()} chars removable`
-              : lastScan
-                ? "None detected"
-                : undefined
+            lastScan
+              ? `${lastScan.prsScanned} PRs scanned`
+              : "Run a PR scan"
+          }
+        />
+        <StatCard
+          label="README score"
+          value={avgReadmeScore ?? "—"}
+          hint={
+            readmeResults.length
+              ? `avg across ${readmeResults.length}`
+              : "Run a README scan"
           }
         />
       </div>
@@ -364,7 +506,7 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-2">
           <div className="rounded-lg border border-line bg-white p-4">
-            <h2 className="font-semibold">Scan settings</h2>
+            <h2 className="font-semibold">Actions</h2>
             <div className="mt-4 space-y-4">
               <label className="block">
                 <span className="text-xs text-muted">PRs per repository</span>
@@ -394,8 +536,26 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                 className="w-full rounded-md bg-ink py-2.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
               >
                 {scanning
-                  ? "Scanning pull requests…"
-                  : `Scan ${selected.size} repositor${selected.size === 1 ? "y" : "ies"}`}
+                  ? "Scanning PRs…"
+                  : `Scan PRs (${selected.size})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runReadmeScan()}
+                disabled={scanningReadmes || selected.size === 0}
+                className="w-full rounded-md border border-line py-2.5 text-sm font-medium text-ink hover:bg-surface disabled:opacity-50"
+              >
+                {scanningReadmes
+                  ? "Checking READMEs…"
+                  : `Check READMEs (${selected.size})`}
+              </button>
+              <button
+                type="button"
+                onClick={exportReport}
+                disabled={hits.length === 0 && readmeResults.length === 0}
+                className="w-full rounded-md border border-line py-2 text-sm text-muted hover:text-ink disabled:opacity-40"
+              >
+                Export JSON report
               </button>
             </div>
           </div>
@@ -506,179 +666,365 @@ export function DashboardClient({ login, avatarUrl }: Props) {
         <div className="lg:col-span-3">
           <div className="rounded-lg border border-line bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-              <div>
-                <h2 className="font-semibold">Scan results</h2>
-                {lastScan && (
-                  <p className="text-xs text-muted">
-                    Last scan {new Date(lastScan.at).toLocaleString()}
-                  </p>
-                )}
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setTab("prs")}
+                  className={`rounded-md px-3 py-1.5 text-sm ${
+                    tab === "prs"
+                      ? "bg-ink text-white"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  Pull requests
+                  {hits.length > 0 && (
+                    <span className="ml-1.5 opacity-70">{hits.length}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("readmes")}
+                  className={`rounded-md px-3 py-1.5 text-sm ${
+                    tab === "readmes"
+                      ? "bg-ink text-white"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  READMEs
+                  {readmeResults.length > 0 && (
+                    <span className="ml-1.5 opacity-70">
+                      {readmeResults.length}
+                    </span>
+                  )}
+                </button>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {hits.length > 0 && (
-                  <>
-                    <div className="flex gap-1">
-                      {(["all", "open", "closed"] as const).map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setStateFilter(s)}
-                          className={`rounded-md px-2.5 py-1 text-xs capitalize ${
-                            stateFilter === s
-                              ? "bg-ink text-white"
-                              : "bg-surface text-muted hover:text-ink"
-                          }`}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={exportReport}
-                      className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:text-ink"
-                    >
-                      Export JSON
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void cleanAll()}
-                      disabled={bulkCleaning || filteredHits.length === 0}
-                      className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
-                    >
-                      {bulkCleaning
-                        ? "Cleaning…"
-                        : `Clean all (${filteredHits.length})`}
-                    </button>
-                  </>
-                )}
-              </div>
+              {tab === "prs" && hits.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex gap-1">
+                    {(["all", "open", "closed"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setStateFilter(s)}
+                        className={`rounded-md px-2.5 py-1 text-xs capitalize ${
+                          stateFilter === s
+                            ? "bg-surface text-ink"
+                            : "text-muted hover:text-ink"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void cleanAll()}
+                    disabled={bulkCleaning || filteredHits.length === 0}
+                    className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
+                  >
+                    {bulkCleaning
+                      ? "Cleaning…"
+                      : `Clean all (${filteredHits.length})`}
+                  </button>
+                </div>
+              )}
+              {tab === "readmes" && readmeResults.length > 0 && (
+                <label className="flex items-center gap-2 text-xs text-muted">
+                  <input
+                    type="checkbox"
+                    checked={onlyIssues}
+                    onChange={(e) => setOnlyIssues(e.target.checked)}
+                    className="accent-ink"
+                  />
+                  Only with issues
+                </label>
+              )}
             </div>
 
             <div className="p-4">
-              {!lastScan ? (
-                <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-surface/30 px-6 py-12 text-center">
-                  <p className="font-medium">No scan yet</p>
-                  <p className="mt-1 max-w-sm text-sm text-muted">
-                    Select repositories on the left, then run a scan to find
-                    Copilot tip residue in pull request descriptions.
-                  </p>
-                </div>
-              ) : filteredHits.length === 0 ? (
-                <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-ok-soft/30 px-6 py-12 text-center">
-                  <p className="font-medium text-ok">All clear</p>
-                  <p className="mt-1 max-w-sm text-sm text-muted">
-                    Scanned {lastScan.prsScanned} PRs — no Copilot tip patterns
-                    found in the selected repos.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {hitsByRepo.map(([repoName, repoHits]) => (
-                    <div key={repoName}>
-                      <div className="mb-2 flex items-center justify-between">
-                        <h3 className="font-mono text-sm font-medium">
-                          {repoName}
-                        </h3>
-                        <span className="text-xs text-muted">
-                          {repoHits.length} PR
-                          {repoHits.length === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <ul className="space-y-2">
-                        {repoHits.map((hit) => {
-                          const key = `${hit.repo}#${hit.number}`;
-                          const isOpen = preview?.repo === hit.repo && preview?.number === hit.number;
-                          return (
-                            <li
-                              key={key}
-                              className="rounded-md border border-line bg-surface/20 p-4"
-                            >
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <a
-                                      href={hit.htmlUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="font-medium hover:underline"
-                                    >
-                                      #{hit.number}
-                                    </a>
-                                    <span
-                                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
-                                        hit.state === "open"
-                                          ? "bg-ok-soft text-ok"
-                                          : "bg-surface text-muted"
-                                      }`}
-                                    >
-                                      {hit.state}
-                                    </span>
+              {tab === "prs" && (
+                <>
+                  {!lastScan ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-surface/30 px-6 py-12 text-center">
+                      <p className="font-medium">No PR scan yet</p>
+                      <p className="mt-1 max-w-sm text-sm text-muted">
+                        Select repositories, then scan pull requests for Copilot
+                        tip residue.
+                      </p>
+                    </div>
+                  ) : filteredHits.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-ok-soft/30 px-6 py-12 text-center">
+                      <p className="font-medium text-ok">All clear</p>
+                      <p className="mt-1 max-w-sm text-sm text-muted">
+                        Scanned {lastScan.prsScanned} PRs — no tip patterns
+                        found.
+                        {totalChars > 0 ? "" : ""}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {hitsByRepo.map(([repoName, repoHits]) => (
+                        <div key={repoName}>
+                          <div className="mb-2 flex items-center justify-between">
+                            <h3 className="font-mono text-sm font-medium">
+                              {repoName}
+                            </h3>
+                            <span className="text-xs text-muted">
+                              {repoHits.length} PR
+                              {repoHits.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <ul className="space-y-2">
+                            {repoHits.map((hit) => {
+                              const key = `${hit.repo}#${hit.number}`;
+                              const isOpen =
+                                preview?.repo === hit.repo &&
+                                preview?.number === hit.number;
+                              return (
+                                <li
+                                  key={key}
+                                  className="rounded-md border border-line bg-surface/20 p-4"
+                                >
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <a
+                                          href={hit.htmlUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="font-medium hover:underline"
+                                        >
+                                          #{hit.number}
+                                        </a>
+                                        <span
+                                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                                            hit.state === "open"
+                                              ? "bg-ok-soft text-ok"
+                                              : "bg-surface text-muted"
+                                          }`}
+                                        >
+                                          {hit.state}
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 truncate text-sm text-muted">
+                                        {hit.title}
+                                      </p>
+                                      <p className="mt-2 text-xs text-muted">
+                                        {hit.matches
+                                          .map((m) => m.label)
+                                          .join(" · ")}
+                                        {" · "}
+                                        {hit.removedChars} chars
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setPreview(isOpen ? null : hit)
+                                        }
+                                        className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+                                      >
+                                        {isOpen ? "Hide" : "Preview"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => copyCleaned(hit.cleaned)}
+                                        className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+                                      >
+                                        Copy clean
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (
+                                            confirm(
+                                              `Clean ${hit.repo}#${hit.number}? Only the PR description will change.`,
+                                            )
+                                          ) {
+                                            void cleanHit(hit);
+                                          }
+                                        }}
+                                        disabled={
+                                          cleaningKey === key || bulkCleaning
+                                        }
+                                        className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
+                                      >
+                                        {cleaningKey === key
+                                          ? "Cleaning…"
+                                          : "Clean"}
+                                      </button>
+                                    </div>
                                   </div>
-                                  <p className="mt-1 truncate text-sm text-muted">
-                                    {hit.title}
-                                  </p>
-                                  <p className="mt-2 text-xs text-muted">
-                                    {hit.matches.map((m) => m.label).join(" · ")}
-                                    {" · "}
-                                    {hit.removedChars} chars
-                                  </p>
+                                  {isOpen && (
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                      <div>
+                                        <p className="mb-1 text-xs font-medium text-strike">
+                                          Before
+                                        </p>
+                                        <pre className="max-h-48 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                                          {hit.body}
+                                        </pre>
+                                      </div>
+                                      <div>
+                                        <p className="mb-1 text-xs font-medium text-ok">
+                                          After
+                                        </p>
+                                        <pre className="max-h-48 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
+                                          {hit.cleaned}
+                                        </pre>
+                                      </div>
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {tab === "readmes" && (
+                <>
+                  {readmeResults.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-surface/30 px-6 py-12 text-center">
+                      <p className="font-medium">No README scan yet</p>
+                      <p className="mt-1 max-w-sm text-sm text-muted">
+                        Check READMEs for missing files, tip residue, TODOs, and
+                        thin docs. Tip residue can be cleaned with a confirm.
+                      </p>
+                    </div>
+                  ) : visibleReadmes.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-ok-soft/30 px-6 py-12 text-center">
+                      <p className="font-medium text-ok">Looking good</p>
+                      <p className="mt-1 max-w-sm text-sm text-muted">
+                        No README issues in the current filter.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-3">
+                      {visibleReadmes.map((item) => {
+                        const open = readmePreview === item.repo;
+                        return (
+                          <li
+                            key={item.repo}
+                            className="rounded-md border border-line bg-surface/20 p-4"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <a
+                                    href={item.htmlUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-mono text-sm font-medium hover:underline"
+                                  >
+                                    {item.repo}
+                                  </a>
+                                  <span
+                                    className={`text-sm font-semibold tabular-nums ${scoreColor(item.score)}`}
+                                  >
+                                    {item.score}/100
+                                  </span>
+                                  {item.path && (
+                                    <span className="text-xs text-muted">
+                                      {item.path}
+                                    </span>
+                                  )}
                                 </div>
-                                <div className="flex gap-2">
+                                <ul className="mt-2 space-y-1">
+                                  {item.issues.map((issue) => (
+                                    <li
+                                      key={issue.id}
+                                      className="text-xs text-muted"
+                                    >
+                                      <span
+                                        className={
+                                          issue.severity === "error"
+                                            ? "text-strike"
+                                            : issue.severity === "warn"
+                                              ? "text-amber-600"
+                                              : "text-muted"
+                                        }
+                                      >
+                                        {issue.label}
+                                      </span>
+                                      {" — "}
+                                      {issue.detail}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {item.content && (
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      setPreview(isOpen ? null : hit)
+                                      setReadmePreview(open ? null : item.repo)
                                     }
                                     className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
                                   >
-                                    {isOpen ? "Hide" : "Preview"}
+                                    {open ? "Hide" : "View"}
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (
-                                        confirm(
-                                          `Clean ${hit.repo}#${hit.number}? Only the PR description will change.`,
-                                        )
-                                      ) {
-                                        void cleanHit(hit);
+                                )}
+                                {item.tipContaminated && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        copyCleaned(item.cleaned)
                                       }
-                                    }}
-                                    disabled={cleaningKey === key || bulkCleaning}
-                                    className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
-                                  >
-                                    {cleaningKey === key ? "Cleaning…" : "Clean"}
-                                  </button>
+                                      className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+                                    >
+                                      Copy clean
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void cleanReadmeTips(item)
+                                      }
+                                      disabled={
+                                        cleaningKey === `readme:${item.repo}`
+                                      }
+                                      className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                                    >
+                                      {cleaningKey === `readme:${item.repo}`
+                                        ? "Cleaning…"
+                                        : "Clean tips"}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {open && (
+                              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-muted">
+                                    Current
+                                  </p>
+                                  <pre className="max-h-56 overflow-auto rounded-md border border-line bg-white p-3 font-mono text-xs whitespace-pre-wrap">
+                                    {item.content || "(empty)"}
+                                  </pre>
+                                </div>
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-ok">
+                                    After tip clean
+                                  </p>
+                                  <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                                    {item.cleaned || "(empty)"}
+                                  </pre>
                                 </div>
                               </div>
-                              {isOpen && (
-                                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                  <div>
-                                    <p className="mb-1 text-xs font-medium text-strike">
-                                      Before
-                                    </p>
-                                    <pre className="max-h-48 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
-                                      {hit.body}
-                                    </pre>
-                                  </div>
-                                  <div>
-                                    <p className="mb-1 text-xs font-medium text-ok">
-                                      After
-                                    </p>
-                                    <pre className="max-h-48 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
-                                      {hit.cleaned}
-                                    </pre>
-                                  </div>
-                                </div>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
           </div>

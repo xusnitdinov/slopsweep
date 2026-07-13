@@ -149,3 +149,83 @@ export async function cleanPullRequestBody(
 
   return { htmlUrl: data.html_url ?? "" };
 }
+
+export type ReadmeFile = {
+  repo: string;
+  path: string | null;
+  content: string | null;
+  sha: string | null;
+  htmlUrl: string;
+};
+
+const README_CANDIDATES = [
+  "README.md",
+  "Readme.md",
+  "readme.md",
+  "README",
+  "README.MD",
+];
+
+export async function getRepoReadme(
+  octokit: Octokit,
+  fullName: string,
+): Promise<ReadmeFile> {
+  const [owner, repo] = fullName.split("/");
+  const htmlUrl = `https://github.com/${fullName}`;
+  if (!owner || !repo) {
+    return { repo: fullName, path: null, content: null, sha: null, htmlUrl };
+  }
+
+  for (const path of README_CANDIDATES) {
+    try {
+      const { data } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path,
+      });
+      if (Array.isArray(data) || data.type !== "file" || !("content" in data)) {
+        continue;
+      }
+      const content = Buffer.from(data.content, "base64").toString("utf8");
+      return {
+        repo: fullName,
+        path: data.path,
+        content,
+        sha: data.sha,
+        htmlUrl: data.html_url ?? htmlUrl,
+      };
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return { repo: fullName, path: null, content: null, sha: null, htmlUrl };
+}
+
+export async function updateRepoReadme(
+  octokit: Octokit,
+  fullName: string,
+  path: string,
+  sha: string,
+  content: string,
+  message?: string,
+): Promise<{ htmlUrl: string }> {
+  const [owner, repo] = fullName.split("/");
+  if (!owner || !repo) throw new Error("Invalid repo");
+
+  const { data } = await octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path,
+    message: message ?? "chore: remove Copilot tip residue from README via SlopSweep",
+    content: Buffer.from(content, "utf8").toString("base64"),
+    sha,
+  });
+
+  return {
+    htmlUrl:
+      data.content?.html_url ??
+      data.commit.html_url ??
+      `https://github.com/${fullName}`,
+  };
+}

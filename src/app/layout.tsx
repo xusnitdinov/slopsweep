@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Inter } from "next/font/google";
+import { IBM_Plex_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
 
-const display = Inter({
+const display = DM_Sans({
   variable: "--font-display",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
@@ -15,9 +15,13 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SlopSweep — remove Copilot tip junk from PRs",
+  title: "SlopSweep — clean Copilot tips from PRs & READMEs",
   description:
-    "Scan GitHub pull requests for leftover Copilot product tips and strip them from descriptions. Read-only scan. Optional clean.",
+    "Scan GitHub pull requests and READMEs for leftover Copilot product tips. Preview diffs, then clean descriptions safely.",
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png" }],
+  },
 };
 
 export default function RootLayout({

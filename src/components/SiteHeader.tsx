@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 type Props = {
@@ -12,9 +13,14 @@ export function SiteHeader({ active }: Props) {
           href="/"
           className="flex items-center gap-2.5 text-[15px] font-semibold text-ink"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-ink text-xs font-bold text-white">
-            SS
-          </span>
+          <Image
+            src="/icon.png"
+            alt=""
+            width={28}
+            height={28}
+            className="rounded-md"
+            priority
+          />
           SlopSweep
         </Link>
         <nav className="flex items-center gap-2 text-sm">
