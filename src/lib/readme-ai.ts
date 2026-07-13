@@ -626,6 +626,10 @@ export function draftReadmeFromContext(ctx: RepoContext): string {
       lines.push("Tests:", "", "```bash", "npm test", "```", "");
     }
   } else if (ctx.projectKind === "python" || ctx.pythonReqs.length > 0) {
+    const isBot =
+      ctx.pythonReqs.some((r) => /aiogram|telegram|pyrogram|discord/i.test(r)) ||
+      ctx.features.some((f) => /bot/i.test(f)) ||
+      /bot/i.test(ctx.name);
     lines.push(
       "## Getting started",
       "",
@@ -633,6 +637,43 @@ export function draftReadmeFromContext(ctx: RepoContext): string {
       "python -m venv .venv",
       "# Windows: .venv\\Scripts\\activate",
       "pip install -r requirements.txt",
+      "```",
+      "",
+    );
+    if (isBot) {
+      lines.push(
+        "Create a `.env` (or local config) with your bot token, then run the main module listed under Notable code.",
+        "",
+      );
+    }
+  } else if (ctx.projectKind === "static") {
+    lines.push(
+      "## Getting started",
+      "",
+      "Open `index.html` in a browser, or serve the folder locally:",
+      "",
+      "```bash",
+      "npx serve .",
+      "```",
+      "",
+    );
+  } else if (ctx.projectKind === "rust") {
+    lines.push(
+      "## Getting started",
+      "",
+      "```bash",
+      "cargo build",
+      "cargo run",
+      "```",
+      "",
+    );
+  } else if (ctx.projectKind === "go") {
+    lines.push(
+      "## Getting started",
+      "",
+      "```bash",
+      "go mod tidy",
+      "go run .",
       "```",
       "",
     );

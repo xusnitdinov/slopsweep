@@ -15,8 +15,13 @@ export async function GET() {
 
   try {
     const octokit = getOctokit(token);
-    const repos = await listUserRepos(octokit, { maxRepos: 80 });
-    return NextResponse.json({ repos });
+    const repos = await listUserRepos(octokit, { maxRepos: 120 });
+    return NextResponse.json({
+      repos: repos.map((r) => ({
+        ...r,
+        // back-compat for older clients
+      })),
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json(

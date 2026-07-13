@@ -14,6 +14,13 @@ export type RepoSummary = {
   private: boolean;
   htmlUrl: string;
   updatedAt: string;
+  owner: string;
+  ownerType: "User" | "Organization" | string;
+};
+
+export type OrgSummary = {
+  login: string;
+  avatarUrl: string;
 };
 
 export type ScanResult = {
@@ -34,11 +41,37 @@ export type ContaminatedPr = {
   removedChars: number;
 };
 
+export async function listUserOrgs(
+  octokit: Octokit,
+): Promise<OrgSummary[]> {
+  const orgs: OrgSummary[] = [];
+  for await (const response of octokit.paginate.iterator(
+    octokit.orgs.listForAuthenticatedUser,
+    { per_page: 50 },
+  )) {
+    for (const org of response.data) {
+      orgs.push({
+        login: org.login,
+        avatarUrl: org.avatar_url,
+      });
+    }
+  }
+  return orgs;
+}
+
 export async function listUserRepos(
   octokit: Octokit,
-  options?: { maxRepos?: number },
+  options?: {
+    maxRepos?: number;
+    /** owner | collaborator | organization_member | all */
+    affiliation?: string;
+    /** Filter to a specific owner/org login */
+    owner?: string | null;
+  },
 ): Promise<RepoSummary[]> {
-  const maxRepos = options?.maxRepos ?? 50;
+  const maxRepos = options?.maxRepos ?? 80;
+  const affiliation = options?.affiliation ?? "owner,collaborator,organization_member";
+  const ownerFilter = options?.owner?.toLowerCase() ?? null;
   const repos: RepoSummary[] = [];
 
   for await (const response of octokit.paginate.iterator(
@@ -46,22 +79,68 @@ export async function listUserRepos(
     {
       per_page: 50,
       sort: "updated",
-      affiliation: "owner,collaborator,organization_member",
+      affiliation,
     },
   )) {
     for (const repo of response.data) {
+      const ownerLogin = repo.owner?.login ?? repo.full_name.split("/")[0] ?? "";
+      if (ownerFilter && ownerLogin.toLowerCase() !== ownerFilter) continue;
       repos.push({
         id: repo.id,
         fullName: repo.full_name,
         private: repo.private,
         htmlUrl: repo.html_url,
         updatedAt: repo.updated_at ?? repo.pushed_at ?? "",
+        owner: ownerLogin,
+        ownerType: repo.owner?.type ?? "User",
       });
       if (repos.length >= maxRepos) return repos;
     }
   }
 
   return repos;
+}
+
+export async function fetchPullRequestBody(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  number: number,
+) {
+  const { data } = await octokit.pulls.get({
+    owner,
+    repo,
+    pull_number: number,
+  });
+  return {
+    repo: `${owner}/${repo}`,
+    number: data.number,
+    title: data.title,
+    state: data.state,
+    htmlUrl: data.html_url,
+    body: data.body ?? "",
+  };
+}
+
+export function parseGitHubPrUrl(
+  input: string,
+): { owner: string; repo: string; number: number } | null {
+  try {
+    const url = new URL(input.trim());
+    if (!/github\.com$/i.test(url.hostname) && url.hostname !== "www.github.com") {
+      return null;
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    // owner/repo/pull/123
+    if (parts.length >= 4 && parts[2] === "pull") {
+      const number = Number(parts[3]);
+      if (!parts[0] || !parts[1] || !Number.isFinite(number)) return null;
+      return { owner: parts[0], repo: parts[1], number };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function scanReposForTips(

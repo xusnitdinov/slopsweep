@@ -1,6 +1,15 @@
 "use client";
 
 import { changeAccountAction, signOutAction } from "@/app/actions";
+import { LineDiff } from "@/components/LineDiff";
+import {
+  bumpStats,
+  loadHistory,
+  markHistoryUndone,
+  pushHistory,
+  type CleanHistoryEntry,
+} from "@/lib/client-store";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Repo = {
@@ -9,7 +18,10 @@ type Repo = {
   private: boolean;
   htmlUrl: string;
   updatedAt: string;
+  owner?: string;
 };
+
+type Org = { login: string; avatarUrl: string };
 
 type Hit = {
   repo: string;
@@ -53,7 +65,8 @@ type Props = {
 
 type VisibilityFilter = "all" | "public" | "private";
 type StateFilter = "all" | "open" | "closed";
-type Tab = "prs" | "readmes";
+type Tab = "prs" | "readmes" | "history";
+type Affiliation = "all" | "owner" | "collaborator" | "org";
 
 function formatRelative(dateStr: string) {
   if (!dateStr) return "";
@@ -114,26 +127,45 @@ export function DashboardClient({ login, avatarUrl }: Props) {
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [lastScan, setLastScan] = useState<ScanSummary | null>(null);
   const [onlyIssues, setOnlyIssues] = useState(true);
+  const [orgs, setOrgs] = useState<Org[]>([]);
+  const [orgFilter, setOrgFilter] = useState<string>("");
+  const [affiliation, setAffiliation] = useState<Affiliation>("all");
+  const [history, setHistory] = useState<CleanHistoryEntry[]>([]);
+  const [notifySlack, setNotifySlack] = useState(false);
+  const [diffMode, setDiffMode] = useState(true);
+
+  const refreshHistory = useCallback(() => {
+    setHistory(loadHistory());
+  }, []);
 
   const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
     setError(null);
     try {
-      const res = await fetch("/api/scan");
+      const params = new URLSearchParams({ affiliation });
+      if (orgFilter) params.set("owner", orgFilter);
+      const res = await fetch(`/api/orgs?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load repos");
+      setOrgs(data.orgs ?? []);
       setRepos(data.repos);
-      setSelected(new Set(data.repos.slice(0, 10).map((r: Repo) => r.fullName)));
+      setSelected(
+        new Set(data.repos.slice(0, 10).map((r: Repo) => r.fullName)),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load repos");
     } finally {
       setLoadingRepos(false);
     }
-  }, []);
+  }, [affiliation, orgFilter]);
 
   useEffect(() => {
     void loadRepos();
   }, [loadRepos]);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
 
   const filteredRepos = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -225,12 +257,28 @@ export function DashboardClient({ login, avatarUrl }: Props) {
         ),
         at: new Date().toISOString(),
       });
+      bumpStats({
+        scansRun: 1,
+        lastScanAt: new Date().toISOString(),
+      });
       setTab("prs");
       setStatus(
         data.hits.length === 0
           ? `Scanned ${data.prsScanned} PRs across ${data.scanned} repos — all clean.`
           : `Found ${data.hits.length} contaminated PR${data.hits.length === 1 ? "" : "s"} in ${data.reposWithHits} repo${data.reposWithHits === 1 ? "" : "s"}.`,
       );
+      if (notifySlack) {
+        void fetch("/api/notify/slack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: "SlopSweep scan complete",
+            text: `SlopSweep: ${data.hits.length} tip hit(s) across ${data.scanned} repo(s) (${data.prsScanned} PRs scanned).`,
+            hits: data.hits.length,
+            repos: data.scanned,
+          }),
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan failed");
     } finally {
@@ -284,6 +332,16 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Clean failed");
+      pushHistory({
+        kind: "pr",
+        repo: hit.repo,
+        number: hit.number,
+        before: hit.body,
+        after: hit.cleaned,
+        htmlUrl: hit.htmlUrl,
+      });
+      bumpStats({ prsCleaned: 1, charsRemoved: hit.removedChars });
+      refreshHistory();
       setHits((prev) =>
         prev.filter((h) => !(h.repo === hit.repo && h.number === hit.number)),
       );
@@ -320,6 +378,19 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "README clean failed");
+      pushHistory({
+        kind: "readme",
+        repo: item.repo,
+        path: item.path ?? "README.md",
+        before: item.content,
+        after: item.cleaned,
+        htmlUrl: item.htmlUrl,
+      });
+      bumpStats({
+        readmesCleaned: 1,
+        charsRemoved: item.removedChars,
+      });
+      refreshHistory();
       setReadmeResults((prev) =>
         prev.map((r) =>
           r.repo === item.repo
@@ -388,6 +459,19 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Commit failed");
+      pushHistory({
+        kind: "readme",
+        repo: item.repo,
+        path: data.path ?? "README.md",
+        before: item.content || "",
+        after: data.content,
+        htmlUrl: data.htmlUrl,
+      });
+      bumpStats({
+        readmesCreated: item.content ? 0 : 1,
+        readmesCleaned: item.content ? 1 : 0,
+      });
+      refreshHistory();
       setReadmeResults((prev) =>
         prev.map((r) =>
           r.repo === item.repo
@@ -445,6 +529,15 @@ export function DashboardClient({ login, avatarUrl }: Props) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Clean failed");
+        pushHistory({
+          kind: "pr",
+          repo: hit.repo,
+          number: hit.number,
+          before: hit.body,
+          after: hit.cleaned,
+          htmlUrl: hit.htmlUrl,
+        });
+        bumpStats({ prsCleaned: 1, charsRemoved: hit.removedChars });
         setHits((prev) =>
           prev.filter(
             (h) => !(h.repo === hit.repo && h.number === hit.number),
@@ -457,8 +550,41 @@ export function DashboardClient({ login, avatarUrl }: Props) {
       }
     }
     setPreview(null);
+    refreshHistory();
     setStatus(`Cleaned ${cleaned} of ${total} PR(s)`);
     setBulkCleaning(false);
+  }
+
+  async function undoEntry(entry: CleanHistoryEntry) {
+    if (entry.undone) return;
+    if (entry.kind !== "pr" || typeof entry.number !== "number") {
+      setError("README undo isn’t automated yet — restore the file on GitHub if needed.");
+      return;
+    }
+    if (!confirm(`Restore previous description for ${entry.repo}#${entry.number}?`)) {
+      return;
+    }
+    setCleaningKey(`undo:${entry.id}`);
+    try {
+      const res = await fetch("/api/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: entry.repo,
+          number: entry.number,
+          body: entry.before,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Undo failed");
+      markHistoryUndone(entry.id);
+      refreshHistory();
+      setStatus(`Restored ${entry.repo}#${entry.number}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Undo failed");
+    } finally {
+      setCleaningKey(null);
+    }
   }
 
   function exportReport() {
@@ -587,6 +713,36 @@ export function DashboardClient({ login, avatarUrl }: Props) {
             <h2 className="font-semibold">Actions</h2>
             <div className="mt-4 space-y-4">
               <label className="block">
+                <span className="text-xs text-muted">Access</span>
+                <select
+                  value={affiliation}
+                  onChange={(e) =>
+                    setAffiliation(e.target.value as Affiliation)
+                  }
+                  className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-ink/30"
+                >
+                  <option value="all">Owner + collab + orgs</option>
+                  <option value="owner">Owned by me</option>
+                  <option value="collaborator">Collaborator</option>
+                  <option value="org">Organization member</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted">Organization</span>
+                <select
+                  value={orgFilter}
+                  onChange={(e) => setOrgFilter(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-ink/30"
+                >
+                  <option value="">All owners</option>
+                  {orgs.map((o) => (
+                    <option key={o.login} value={o.login}>
+                      {o.login}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
                 <span className="text-xs text-muted">PRs per repository</span>
                 <select
                   value={prsPerRepo}
@@ -607,6 +763,35 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                 />
                 Include closed pull requests
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={diffMode}
+                  onChange={(e) => setDiffMode(e.target.checked)}
+                  className="accent-ink"
+                />
+                Show line diff in previews
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={notifySlack}
+                  onChange={(e) => setNotifySlack(e.target.checked)}
+                  className="accent-ink"
+                />
+                Notify Slack after PR scan
+              </label>
+              <p className="text-[11px] text-muted">
+                Slack needs <code className="font-mono">SLACK_WEBHOOK_URL</code>{" "}
+                on the server.{" "}
+                <Link href="/stats" className="underline underline-offset-2">
+                  View stats
+                </Link>{" "}
+                ·{" "}
+                <Link href="/inspect" className="underline underline-offset-2">
+                  Public PR inspect
+                </Link>
+              </p>
               <button
                 type="button"
                 onClick={() => void runScan()}
@@ -775,6 +960,23 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                     </span>
                   )}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    refreshHistory();
+                    setTab("history");
+                  }}
+                  className={`rounded-md px-3 py-1.5 text-sm ${
+                    tab === "history"
+                      ? "bg-ink text-white"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  History
+                  {history.length > 0 && (
+                    <span className="ml-1.5 opacity-70">{history.length}</span>
+                  )}
+                </button>
               </div>
               {tab === "prs" && hits.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
@@ -935,23 +1137,32 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                                     </div>
                                   </div>
                                   {isOpen && (
-                                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                      <div>
-                                        <p className="mb-1 text-xs font-medium text-strike">
-                                          Before
-                                        </p>
-                                        <pre className="max-h-48 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
-                                          {hit.body}
-                                        </pre>
-                                      </div>
-                                      <div>
-                                        <p className="mb-1 text-xs font-medium text-ok">
-                                          After
-                                        </p>
-                                        <pre className="max-h-48 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
-                                          {hit.cleaned}
-                                        </pre>
-                                      </div>
+                                    <div className="mt-4">
+                                      {diffMode ? (
+                                        <LineDiff
+                                          before={hit.body}
+                                          after={hit.cleaned}
+                                        />
+                                      ) : (
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                          <div>
+                                            <p className="mb-1 text-xs font-medium text-strike">
+                                              Before
+                                            </p>
+                                            <pre className="max-h-48 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                                              {hit.body}
+                                            </pre>
+                                          </div>
+                                          <div>
+                                            <p className="mb-1 text-xs font-medium text-ok">
+                                              After
+                                            </p>
+                                            <pre className="max-h-48 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
+                                              {hit.cleaned}
+                                            </pre>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </li>
@@ -1052,10 +1263,7 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                                     {open ? "Hide" : "View"}
                                   </button>
                                 )}
-                                {(missing ||
-                                  item.issues.some(
-                                    (i) => i.id === "thin" || i.id === "too-short",
-                                  )) && (
+                                {(missing || item.content) && (
                                   <button
                                     type="button"
                                     onClick={() => void generateReadme(item)}
@@ -1115,42 +1323,118 @@ export function DashboardClient({ login, avatarUrl }: Props) {
                               </div>
                             </div>
                             {open && (
-                              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                <div>
-                                  <p className="mb-1 text-xs font-medium text-muted">
-                                    Current
-                                  </p>
-                                  <pre className="max-h-56 overflow-auto rounded-md border border-line bg-white p-3 font-mono text-xs whitespace-pre-wrap">
-                                    {item.content || "(no README yet)"}
-                                  </pre>
-                                </div>
-                                <div>
-                                  <p className="mb-1 text-xs font-medium text-ok">
-                                    {draft ? "AI draft" : "After tip clean"}
-                                  </p>
-                                  {draft ? (
-                                    <textarea
-                                      value={draft}
-                                      onChange={(e) =>
-                                        setDrafts((prev) => ({
-                                          ...prev,
-                                          [item.repo]: e.target.value,
-                                        }))
-                                      }
-                                      rows={14}
-                                      className="max-h-56 w-full overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs outline-none focus:border-ok/40"
-                                    />
-                                  ) : (
-                                    <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
-                                      {item.cleaned || "(empty)"}
+                              <div className="mt-4 space-y-3">
+                                {draft && diffMode && item.content ? (
+                                  <LineDiff
+                                    before={item.content}
+                                    after={draft}
+                                  />
+                                ) : null}
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div>
+                                    <p className="mb-1 text-xs font-medium text-muted">
+                                      Current
+                                    </p>
+                                    <pre className="max-h-56 overflow-auto rounded-md border border-line bg-white p-3 font-mono text-xs whitespace-pre-wrap">
+                                      {item.content || "(no README yet)"}
                                     </pre>
-                                  )}
+                                  </div>
+                                  <div>
+                                    <p className="mb-1 text-xs font-medium text-ok">
+                                      {draft ? "AI draft (editable)" : "After tip clean"}
+                                    </p>
+                                    {draft ? (
+                                      <textarea
+                                        value={draft}
+                                        onChange={(e) =>
+                                          setDrafts((prev) => ({
+                                            ...prev,
+                                            [item.repo]: e.target.value,
+                                          }))
+                                        }
+                                        rows={14}
+                                        className="max-h-56 w-full overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs outline-none focus:border-ok/40"
+                                      />
+                                    ) : item.tipContaminated && diffMode ? (
+                                      <LineDiff
+                                        before={item.content}
+                                        after={item.cleaned}
+                                      />
+                                    ) : (
+                                      <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                                        {item.cleaned || "(empty)"}
+                                      </pre>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             )}
                           </li>
                         );
                       })}
+                    </ul>
+                  )}
+                </>
+              )}
+
+              {tab === "history" && (
+                <>
+                  {history.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-surface/30 px-6 py-12 text-center">
+                      <p className="font-medium">No clean history yet</p>
+                      <p className="mt-1 max-w-sm text-sm text-muted">
+                        After you clean a PR or README, it shows up here so you
+                        can undo PR description changes.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {history.map((entry) => (
+                        <li
+                          key={entry.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-surface/20 px-4 py-3"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">
+                              {entry.kind === "pr"
+                                ? `${entry.repo}#${entry.number}`
+                                : `${entry.repo}/${entry.path ?? "README.md"}`}
+                              {entry.undone ? (
+                                <span className="ml-2 text-xs text-muted">
+                                  undone
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="text-xs text-muted">
+                              {new Date(entry.at).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            {entry.htmlUrl && (
+                              <a
+                                href={entry.htmlUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+                              >
+                                View
+                              </a>
+                            )}
+                            {entry.kind === "pr" && !entry.undone && (
+                              <button
+                                type="button"
+                                onClick={() => void undoEntry(entry)}
+                                disabled={cleaningKey === `undo:${entry.id}`}
+                                className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink disabled:opacity-50"
+                              >
+                                {cleaningKey === `undo:${entry.id}`
+                                  ? "Restoring…"
+                                  : "Undo"}
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      ))}
                     </ul>
                   )}
                 </>

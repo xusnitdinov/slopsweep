@@ -1,0 +1,65 @@
+# SlopSweep — comment on PRs that still contain Copilot tip residue
+name: SlopSweep PR tip check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-tips:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Detect Copilot tip residue in PR body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request?.body || '';
+            const marker = /START\s+COPILOT\s+CODING\s+AGENT\s+TIPS/i;
+            const promos = [
+              /Raycast.*Copilot/i,
+              /Copilot.*from\s+Slack/i,
+              /Copilot.*Teams/i,
+              /Copilot.*VS\s*Code/i,
+              /Copilot.*JetBrains/i,
+              /Copilot.*Eclipse/i,
+            ];
+            const hit = marker.test(body) || promos.some((re) => re.test(body));
+            if (!hit) {
+              core.info('No Copilot tip residue detected.');
+              return;
+            }
+            const markerText = '<!-- slopsweep-tip-check -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            if (comments.some((c) => (c.body || '').includes(markerText))) {
+              core.info('SlopSweep comment already present.');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                markerText,
+                '## SlopSweep found Copilot tip residue',
+                '',
+                'This PR description looks like it still contains Copilot product-tip text from the March 2026 incident.',
+                '',
+                'Please remove the tip block / promo lines from the description (your summary can stay).',
+                '',
+                'Clean it visually: https://slopsweep.vercel.app/inspect',
+                'Or sign in to clean from the dashboard: https://slopsweep.vercel.app/dashboard',
+              ].join('\n'),
+            });

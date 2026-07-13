@@ -188,10 +188,10 @@ export default function HomePage() {
                   <GitHubSignInButton label="Get started" />
                 </div>
                 <Link
-                  href="#how"
+                  href="/inspect"
                   className="inline-flex items-center justify-center rounded-md border border-line px-4 py-2.5 text-sm font-medium text-ink hover:bg-surface"
                 >
-                  See how it works
+                  Inspect a public PR
                 </Link>
               </div>
               <dl className="mt-10 grid grid-cols-3 gap-4 border-t border-line pt-8">
