@@ -13,6 +13,13 @@ export type RepoSummary = {
   fullName: string;
   private: boolean;
   htmlUrl: string;
+  updatedAt: string;
+};
+
+export type ScanResult = {
+  hits: ContaminatedPr[];
+  prsScanned: number;
+  reposWithHits: number;
 };
 
 export type ContaminatedPr = {
@@ -48,6 +55,7 @@ export async function listUserRepos(
         fullName: repo.full_name,
         private: repo.private,
         htmlUrl: repo.html_url,
+        updatedAt: repo.updated_at ?? repo.pushed_at ?? "",
       });
       if (repos.length >= maxRepos) return repos;
     }
@@ -60,10 +68,12 @@ export async function scanReposForTips(
   octokit: Octokit,
   repoFullNames: string[],
   options?: { prsPerRepo?: number; includeClosed?: boolean },
-): Promise<ContaminatedPr[]> {
+): Promise<ScanResult> {
   const prsPerRepo = options?.prsPerRepo ?? 30;
   const includeClosed = options?.includeClosed ?? true;
   const hits: ContaminatedPr[] = [];
+  let prsScanned = 0;
+  const reposHit = new Set<string>();
 
   for (const fullName of repoFullNames) {
     const [owner, repo] = fullName.split("/");
@@ -84,11 +94,15 @@ export async function scanReposForTips(
           direction: "desc",
         });
 
-        for (const pr of pulls.slice(0, prsPerRepo)) {
+        const batch = pulls.slice(0, prsPerRepo);
+        prsScanned += batch.length;
+
+        for (const pr of batch) {
           const body = pr.body ?? "";
           const result = detectAndClean(body);
           if (!result.contaminated) continue;
 
+          reposHit.add(fullName);
           hits.push({
             repo: fullName,
             number: pr.number,
@@ -106,13 +120,16 @@ export async function scanReposForTips(
           });
         }
       } catch (err) {
-        // Skip repos we can't read (permissions / archived)
         console.warn(`Skip ${fullName} (${state}):`, err);
       }
     }
   }
 
-  return hits;
+  return {
+    hits,
+    prsScanned,
+    reposWithHits: reposHit.size,
+  };
 }
 
 export async function cleanPullRequestBody(

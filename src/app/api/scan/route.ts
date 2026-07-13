@@ -61,11 +61,16 @@ export async function POST(request: Request) {
 
   try {
     const octokit = getOctokit(token);
-    const hits = await scanReposForTips(octokit, repos, {
+    const result = await scanReposForTips(octokit, repos, {
       prsPerRepo: Math.min(body.prsPerRepo ?? 30, 50),
       includeClosed: body.includeClosed ?? true,
     });
-    return NextResponse.json({ hits, scanned: repos.length });
+    return NextResponse.json({
+      hits: result.hits,
+      scanned: repos.length,
+      prsScanned: result.prsScanned,
+      reposWithHits: result.reposWithHits,
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Scan failed" }, { status: 500 });

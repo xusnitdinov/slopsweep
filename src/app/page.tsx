@@ -1,6 +1,5 @@
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { SiteHeader } from "@/components/SiteHeader";
-import Link from "next/link";
 
 export default function HomePage() {
   return (
@@ -24,14 +23,8 @@ export default function HomePage() {
                 your code or deleting repos.
               </p>
 
-              <div className="mt-8 flex max-w-sm flex-col gap-3">
-                <GitHubSignInButton />
-                <Link
-                  href="/demo"
-                  className="inline-flex items-center justify-center rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white transition hover:bg-accent-hover"
-                >
-                  Try without signing in
-                </Link>
+              <div className="mt-8 max-w-sm">
+                <GitHubSignInButton label="Get started" />
               </div>
 
               <dl className="mt-10 grid grid-cols-3 gap-6 border-t border-line pt-8">

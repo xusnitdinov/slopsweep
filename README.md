@@ -19,7 +19,7 @@ Public reporting put the blast radius at roughly **11,000+** PRs for a single ti
 
 | Step | Action |
 | --- | --- |
-| 1 | Sign in with GitHub (or use the no-login paste demo) |
+| 1 | Sign in with GitHub |
 | 2 | Pick the repos you want checked |
 | 3 | Scan open + closed PRs for tip markers / known promo lines |
 | 4 | Preview a before/after **diff** |
@@ -75,24 +75,14 @@ GitHub apologized and turned tips off. Cleanup tooling never shipped. SlopSweep 
 
 ## Quick start
 
-### Option A — paste demo (no GitHub login)
-
-```bash
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000/demo](http://localhost:3000/demo), hit **Detect & clean**, and watch the sample contaminated PR get scrubbed. Zero secrets required. Detection runs in your browser.
-
-### Option B — scan your real repos
-
 1. Copy env file:
 
 ```bash
 cp .env.example .env.local
+npm install
 ```
 
-2. Create a [GitHub OAuth App](https://github.com/settings/developers) (not a PAT):
+2. Create a [GitHub OAuth App](https://github.com/settings/developers):
    - **Homepage URL:** `https://slopsweep.vercel.app`
    - **Callback URL:** `https://slopsweep.vercel.app/api/auth/callback/github`
 
@@ -105,7 +95,7 @@ AUTH_GITHUB_SECRET=your-oauth-client-secret
 AUTH_URL=http://localhost:3000
 ```
 
-4. Run `npm run dev`, open `/dashboard`, click **Continue with GitHub**.
+4. Run `npm run dev`, open `/dashboard`, click **Sign in with GitHub**.
 
 ---
 
@@ -120,7 +110,7 @@ SlopSweep is a **Next.js website**.
 
 ### Live
 
-Production: configure on Vercel after push. Demo works with no secrets; Connect needs OAuth env vars.
+Production: configure OAuth env vars on Vercel.
 
 1. Create a GitHub OAuth App with callback `https://slopsweep.vercel.app/api/auth/callback/github`
 2. Set on Vercel: `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_URL` (`https://slopsweep.vercel.app`)
@@ -164,8 +154,6 @@ Conservative by design: prefer exact markers and known phrases over fuzzy “thi
 ```text
 Browser
   │
-  ├─ /demo  ──────────► POST /api/demo   (detect only, no GitHub)
-  │
   └─ /dashboard
         │
         ├─ GET  /api/scan   list repos          (read)
@@ -188,12 +176,10 @@ Browser
 src/
   app/
     page.tsx              Landing
-    demo/page.tsx         Paste demo
     dashboard/page.tsx    Repo scan UI
     api/auth/             OAuth callbacks
     api/scan/             List repos + scan PRs
     api/clean/            Optional PR-body clean
-    api/demo/             Offline detector
   lib/
     detectors.ts          Tip / promo matching
     detectors.test.ts     Unit tests
@@ -212,13 +198,13 @@ Good talking points for README / interviews:
 - Responded to a **real, dated** platform incident (March 2026) with a practical tool
 - Separated **read-only scan** from **optional, confirmed write**
 - Detection covered by tests; false-positive risk kept low with marker-first rules
-- Demo path so reviewers can try it without granting OAuth
+- Bulk clean, export, and repo filters for maintainers cleaning many PRs
 
 Suggested screenshots (drop in `docs/` if you capture them):
 
-1. Landing — brand + CTAs  
-2. Demo — contaminated sample → cleaned output  
-3. Dashboard — hit list with Diff open  
+1. Landing — brand + CTA  
+2. Dashboard — stats + repo picker  
+3. Dashboard — hit list with preview open  
 
 ---
 

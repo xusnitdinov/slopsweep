@@ -1,13 +1,14 @@
 "use client";
 
 import { signOutAction } from "@/app/actions";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Repo = {
   id: number;
   fullName: string;
   private: boolean;
   htmlUrl: string;
+  updatedAt: string;
 };
 
 type Hit = {
@@ -22,21 +23,69 @@ type Hit = {
   removedChars: number;
 };
 
-type Props = {
-  login: string;
+type ScanSummary = {
+  reposScanned: number;
+  prsScanned: number;
+  reposWithHits: number;
+  hitCount: number;
+  charsRemovable: number;
+  at: string;
 };
 
-export function DashboardClient({ login }: Props) {
+type Props = {
+  login: string;
+  avatarUrl?: string | null;
+};
+
+type VisibilityFilter = "all" | "public" | "private";
+type StateFilter = "all" | "open" | "closed";
+
+function formatRelative(dateStr: string) {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 1) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "1mo ago" : `${months}mo ago`;
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-white px-4 py-3">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+export function DashboardClient({ login, avatarUrl }: Props) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hits, setHits] = useState<Hit[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [bulkCleaning, setBulkCleaning] = useState(false);
   const [cleaningKey, setCleaningKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<Hit | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [includeClosed, setIncludeClosed] = useState(true);
+  const [prsPerRepo, setPrsPerRepo] = useState(30);
+  const [search, setSearch] = useState("");
+  const [visibility, setVisibility] = useState<VisibilityFilter>("all");
+  const [stateFilter, setStateFilter] = useState<StateFilter>("all");
+  const [lastScan, setLastScan] = useState<ScanSummary | null>(null);
 
   const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
@@ -58,6 +107,36 @@ export function DashboardClient({ login }: Props) {
     void loadRepos();
   }, [loadRepos]);
 
+  const filteredRepos = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return repos.filter((repo) => {
+      if (visibility === "public" && repo.private) return false;
+      if (visibility === "private" && !repo.private) return false;
+      if (q && !repo.fullName.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [repos, search, visibility]);
+
+  const filteredHits = useMemo(() => {
+    if (stateFilter === "all") return hits;
+    return hits.filter((h) => h.state === stateFilter);
+  }, [hits, stateFilter]);
+
+  const hitsByRepo = useMemo(() => {
+    const map = new Map<string, Hit[]>();
+    for (const hit of filteredHits) {
+      const list = map.get(hit.repo) ?? [];
+      list.push(hit);
+      map.set(hit.repo, list);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredHits]);
+
+  const totalChars = useMemo(
+    () => hits.reduce((sum, h) => sum + h.removedChars, 0),
+    [hits],
+  );
+
   function toggleRepo(name: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -65,6 +144,10 @@ export function DashboardClient({ login }: Props) {
       else next.add(name);
       return next;
     });
+  }
+
+  function selectVisible() {
+    setSelected(new Set(filteredRepos.map((r) => r.fullName)));
   }
 
   async function runScan() {
@@ -84,16 +167,27 @@ export function DashboardClient({ login }: Props) {
         body: JSON.stringify({
           repos: Array.from(selected),
           includeClosed,
-          prsPerRepo: 30,
+          prsPerRepo,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Scan failed");
       setHits(data.hits);
+      setLastScan({
+        reposScanned: data.scanned,
+        prsScanned: data.prsScanned,
+        reposWithHits: data.reposWithHits,
+        hitCount: data.hits.length,
+        charsRemovable: data.hits.reduce(
+          (sum: number, h: Hit) => sum + h.removedChars,
+          0,
+        ),
+        at: new Date().toISOString(),
+      });
       setStatus(
         data.hits.length === 0
-          ? `Scanned ${data.scanned} repo(s) — no Copilot tip junk found.`
-          : `Found ${data.hits.length} contaminated PR(s).`,
+          ? `Scanned ${data.prsScanned} PRs across ${data.scanned} repos — all clean.`
+          : `Found ${data.hits.length} contaminated PR${data.hits.length === 1 ? "" : "s"} in ${data.reposWithHits} repo${data.reposWithHits === 1 ? "" : "s"}.`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan failed");
@@ -132,200 +226,464 @@ export function DashboardClient({ login }: Props) {
     }
   }
 
+  async function cleanAll() {
+    if (filteredHits.length === 0) return;
+    if (
+      !confirm(
+        `Clean ${filteredHits.length} PR${filteredHits.length === 1 ? "" : "s"}? Only descriptions will change.`,
+      )
+    ) {
+      return;
+    }
+    setBulkCleaning(true);
+    setError(null);
+    let cleaned = 0;
+    for (const hit of [...filteredHits]) {
+      try {
+        const res = await fetch("/api/clean", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repo: hit.repo,
+            number: hit.number,
+            cleaned: hit.cleaned,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Clean failed");
+        setHits((prev) =>
+          prev.filter(
+            (h) => !(h.repo === hit.repo && h.number === hit.number),
+          ),
+        );
+        cleaned++;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Bulk clean stopped");
+        break;
+      }
+    }
+    setPreview(null);
+    setStatus(`Cleaned ${cleaned} of ${filteredHits.length} PR(s)`);
+    setBulkCleaning(false);
+  }
+
+  function exportReport() {
+    const payload = {
+      scannedAt: lastScan?.at ?? new Date().toISOString(),
+      summary: lastScan,
+      hits: hits.map((h) => ({
+        repo: h.repo,
+        number: h.number,
+        title: h.title,
+        state: h.state,
+        url: h.htmlUrl,
+        matches: h.matches.map((m) => m.label),
+        removedChars: h.removedChars,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `slopsweep-report-${login}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted">
-            Signed in as{" "}
-            <span className="font-medium text-ink">@{login}</span>
-          </p>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line bg-white px-5 py-4">
+        <div className="flex items-center gap-3">
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt=""
+              className="h-10 w-10 rounded-full border border-line"
+            />
+          ) : (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-sm font-semibold">
+              {login.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <div>
+            <p className="font-medium">@{login}</p>
+            <p className="text-xs text-muted">
+              {repos.length} repos · scan is read-only
+            </p>
+          </div>
         </div>
         <form action={signOutAction}>
           <button
             type="submit"
-            className="text-sm text-muted hover:text-ink"
+            className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
           >
             Sign out
           </button>
         </form>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Repositories" value={repos.length} />
+        <StatCard
+          label="Selected"
+          value={selected.size}
+          hint={`${filteredRepos.length} visible`}
+        />
+        <StatCard
+          label="PRs scanned"
+          value={lastScan?.prsScanned ?? "—"}
+          hint={lastScan ? `${lastScan.reposScanned} repos` : "Run a scan"}
+        />
+        <StatCard
+          label="Issues found"
+          value={hits.length}
+          hint={
+            hits.length > 0
+              ? `${totalChars.toLocaleString()} chars removable`
+              : lastScan
+                ? "None detected"
+                : undefined
+          }
+        />
+      </div>
+
       {error && (
-        <div className="rounded-md border border-strike/20 bg-strike-soft px-4 py-3 text-sm text-strike">
+        <div className="rounded-lg border border-strike/20 bg-strike-soft px-4 py-3 text-sm text-strike">
           {error}
         </div>
       )}
       {status && (
-        <div className="rounded-md border border-ok/20 bg-ok-soft px-4 py-3 text-sm text-ok">
+        <div className="rounded-lg border border-ok/20 bg-ok-soft px-4 py-3 text-sm text-ok">
           {status}
         </div>
       )}
 
-      <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-semibold">Repositories</h2>
-          <div className="flex gap-3 text-sm text-muted">
-            <button
-              type="button"
-              onClick={() => setSelected(new Set(repos.map((r) => r.fullName)))}
-              className="hover:text-ink"
-            >
-              Select all
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              className="hover:text-ink"
-            >
-              None
-            </button>
-            <button
-              type="button"
-              onClick={() => void loadRepos()}
-              className="hover:text-ink"
-            >
-              Refresh
-            </button>
+      <div className="grid gap-6 lg:grid-cols-5">
+        <div className="space-y-4 lg:col-span-2">
+          <div className="rounded-lg border border-line bg-white p-4">
+            <h2 className="font-semibold">Scan settings</h2>
+            <div className="mt-4 space-y-4">
+              <label className="block">
+                <span className="text-xs text-muted">PRs per repository</span>
+                <select
+                  value={prsPerRepo}
+                  onChange={(e) => setPrsPerRepo(Number(e.target.value))}
+                  className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-ink/30"
+                >
+                  <option value={10}>10 most recent</option>
+                  <option value={30}>30 most recent</option>
+                  <option value={50}>50 most recent</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeClosed}
+                  onChange={(e) => setIncludeClosed(e.target.checked)}
+                  className="accent-ink"
+                />
+                Include closed pull requests
+              </label>
+              <button
+                type="button"
+                onClick={() => void runScan()}
+                disabled={scanning || selected.size === 0}
+                className="w-full rounded-md bg-ink py-2.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
+              >
+                {scanning
+                  ? "Scanning pull requests…"
+                  : `Scan ${selected.size} repositor${selected.size === 1 ? "y" : "ies"}`}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-line bg-white p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-semibold">Repositories</h2>
+              <button
+                type="button"
+                onClick={() => void loadRepos()}
+                className="text-xs text-muted hover:text-ink"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search repos…"
+              className="mt-3 w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-ink/30"
+            />
+
+            <div className="mt-3 flex gap-1">
+              {(["all", "public", "private"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setVisibility(v)}
+                  className={`rounded-md px-2.5 py-1 text-xs capitalize ${
+                    visibility === v
+                      ? "bg-ink text-white"
+                      : "bg-surface text-muted hover:text-ink"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-3 flex gap-3 text-xs text-muted">
+              <button type="button" onClick={selectVisible} className="hover:text-ink">
+                Select visible
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set(repos.map((r) => r.fullName)))}
+                className="hover:text-ink"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="hover:text-ink"
+              >
+                Clear
+              </button>
+            </div>
+
+            {loadingRepos ? (
+              <p className="mt-4 text-sm text-muted">Loading repositories…</p>
+            ) : filteredRepos.length === 0 ? (
+              <p className="mt-4 text-sm text-muted">No repositories match.</p>
+            ) : (
+              <ul className="mt-3 max-h-80 overflow-y-auto rounded-md border border-line divide-y divide-line">
+                {filteredRepos.map((repo) => (
+                  <li key={repo.id}>
+                    <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 hover:bg-surface/80">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(repo.fullName)}
+                        onChange={() => toggleRepo(repo.fullName)}
+                        className="mt-0.5 accent-ink"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-mono text-sm">
+                          {repo.fullName}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-2 text-xs text-muted">
+                          {repo.private ? "Private" : "Public"}
+                          {repo.updatedAt && (
+                            <>
+                              <span>·</span>
+                              <span>Updated {formatRelative(repo.updatedAt)}</span>
+                            </>
+                          )}
+                        </span>
+                      </span>
+                      <a
+                        href={repo.htmlUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-xs text-muted hover:text-ink"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        ↗
+                      </a>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 
-        {loadingRepos ? (
-          <p className="text-sm text-muted">Loading repos…</p>
-        ) : (
-          <ul className="max-h-64 overflow-y-auto rounded-md border border-line bg-white divide-y divide-line">
-            {repos.map((repo) => (
-              <li key={repo.id}>
-                <label className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-surface/80">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(repo.fullName)}
-                    onChange={() => toggleRepo(repo.fullName)}
-                    className="accent-ink"
-                  />
-                  <span className="font-mono text-sm">{repo.fullName}</span>
-                  {repo.private && (
-                    <span className="font-mono text-[10px] uppercase text-muted">
-                      private
-                    </span>
-                  )}
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-4 flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-sm text-muted">
-            <input
-              type="checkbox"
-              checked={includeClosed}
-              onChange={(e) => setIncludeClosed(e.target.checked)}
-              className="accent-[var(--accent)]"
-            />
-            Include closed PRs
-          </label>
-          <button
-            type="button"
-            onClick={() => void runScan()}
-            disabled={scanning || selected.size === 0}
-            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
-          >
-            {scanning
-              ? "Scanning…"
-              : `Scan ${selected.size} repo${selected.size === 1 ? "" : "s"}`}
-          </button>
-        </div>
-      </section>
-
-      {hits.length > 0 && (
-        <section>
-          <h2 className="mb-3 font-semibold">Contaminated PRs</h2>
-          <ul className="space-y-3">
-            {hits.map((hit) => {
-              const key = `${hit.repo}#${hit.number}`;
-              return (
-                <li
-                  key={key}
-                  className="rounded-md border border-line bg-white p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <a
-                        href={hit.htmlUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium text-ink hover:underline"
-                      >
-                        {hit.repo}#{hit.number}
-                      </a>
-                      <p className="mt-1 text-sm text-muted">{hit.title}</p>
-                      <p className="mt-2 font-mono text-xs text-muted">
-                        {hit.matches.map((m) => m.label).join(" · ")} · −
-                        {hit.removedChars} chars
-                      </p>
+        <div className="lg:col-span-3">
+          <div className="rounded-lg border border-line bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+              <div>
+                <h2 className="font-semibold">Scan results</h2>
+                {lastScan && (
+                  <p className="text-xs text-muted">
+                    Last scan {new Date(lastScan.at).toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {hits.length > 0 && (
+                  <>
+                    <div className="flex gap-1">
+                      {(["all", "open", "closed"] as const).map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setStateFilter(s)}
+                          className={`rounded-md px-2.5 py-1 text-xs capitalize ${
+                            stateFilter === s
+                              ? "bg-ink text-white"
+                              : "bg-surface text-muted hover:text-ink"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      ))}
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPreview(
-                            preview?.number === hit.number &&
-                              preview.repo === hit.repo
-                              ? null
-                              : hit,
-                          )
-                        }
-                        className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
-                      >
-                        Diff
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (
-                            confirm(
-                              `Clean ${hit.repo}#${hit.number}? Only the PR description text will change.`,
-                            )
-                          ) {
-                            void cleanHit(hit);
-                          }
-                        }}
-                        disabled={cleaningKey === key}
-                        className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
-                      >
-                        {cleaningKey === key ? "Cleaning…" : "Clean"}
-                      </button>
-                    </div>
-                  </div>
-                  {preview?.repo === hit.repo &&
-                    preview?.number === hit.number && (
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <div>
-                          <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-strike">
-                            Before
-                          </p>
-                          <pre className="max-h-56 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
-                            {hit.body}
-                          </pre>
-                        </div>
-                        <div>
-                          <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-ok">
-                            After
-                          </p>
-                          <pre className="max-h-56 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
-                            {hit.cleaned}
-                          </pre>
-                        </div>
+                    <button
+                      type="button"
+                      onClick={exportReport}
+                      className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:text-ink"
+                    >
+                      Export JSON
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void cleanAll()}
+                      disabled={bulkCleaning || filteredHits.length === 0}
+                      className="rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
+                    >
+                      {bulkCleaning
+                        ? "Cleaning…"
+                        : `Clean all (${filteredHits.length})`}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4">
+              {!lastScan ? (
+                <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-surface/30 px-6 py-12 text-center">
+                  <p className="font-medium">No scan yet</p>
+                  <p className="mt-1 max-w-sm text-sm text-muted">
+                    Select repositories on the left, then run a scan to find
+                    Copilot tip residue in pull request descriptions.
+                  </p>
+                </div>
+              ) : filteredHits.length === 0 ? (
+                <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-line bg-ok-soft/30 px-6 py-12 text-center">
+                  <p className="font-medium text-ok">All clear</p>
+                  <p className="mt-1 max-w-sm text-sm text-muted">
+                    Scanned {lastScan.prsScanned} PRs — no Copilot tip patterns
+                    found in the selected repos.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {hitsByRepo.map(([repoName, repoHits]) => (
+                    <div key={repoName}>
+                      <div className="mb-2 flex items-center justify-between">
+                        <h3 className="font-mono text-sm font-medium">
+                          {repoName}
+                        </h3>
+                        <span className="text-xs text-muted">
+                          {repoHits.length} PR
+                          {repoHits.length === 1 ? "" : "s"}
+                        </span>
                       </div>
-                    )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+                      <ul className="space-y-2">
+                        {repoHits.map((hit) => {
+                          const key = `${hit.repo}#${hit.number}`;
+                          const isOpen = preview?.repo === hit.repo && preview?.number === hit.number;
+                          return (
+                            <li
+                              key={key}
+                              className="rounded-md border border-line bg-surface/20 p-4"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <a
+                                      href={hit.htmlUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="font-medium hover:underline"
+                                    >
+                                      #{hit.number}
+                                    </a>
+                                    <span
+                                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                                        hit.state === "open"
+                                          ? "bg-ok-soft text-ok"
+                                          : "bg-surface text-muted"
+                                      }`}
+                                    >
+                                      {hit.state}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 truncate text-sm text-muted">
+                                    {hit.title}
+                                  </p>
+                                  <p className="mt-2 text-xs text-muted">
+                                    {hit.matches.map((m) => m.label).join(" · ")}
+                                    {" · "}
+                                    {hit.removedChars} chars
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPreview(isOpen ? null : hit)
+                                    }
+                                    className="rounded-md border border-line px-3 py-1.5 text-sm text-muted hover:text-ink"
+                                  >
+                                    {isOpen ? "Hide" : "Preview"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (
+                                        confirm(
+                                          `Clean ${hit.repo}#${hit.number}? Only the PR description will change.`,
+                                        )
+                                      ) {
+                                        void cleanHit(hit);
+                                      }
+                                    }}
+                                    disabled={cleaningKey === key || bulkCleaning}
+                                    className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-accent-hover"
+                                  >
+                                    {cleaningKey === key ? "Cleaning…" : "Clean"}
+                                  </button>
+                                </div>
+                              </div>
+                              {isOpen && (
+                                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                  <div>
+                                    <p className="mb-1 text-xs font-medium text-strike">
+                                      Before
+                                    </p>
+                                    <pre className="max-h-48 overflow-auto rounded-md border border-strike/20 bg-strike-soft/40 p-3 font-mono text-xs whitespace-pre-wrap">
+                                      {hit.body}
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    <p className="mb-1 text-xs font-medium text-ok">
+                                      After
+                                    </p>
+                                    <pre className="max-h-48 overflow-auto rounded-md border border-ok/20 bg-ok-soft/50 p-3 font-mono text-xs whitespace-pre-wrap">
+                                      {hit.cleaned}
+                                    </pre>
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
