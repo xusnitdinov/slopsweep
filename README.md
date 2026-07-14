@@ -1,10 +1,10 @@
 # SlopSweep
 
-### Scrub Copilot tip residue from PRs — and keep READMEs healthy.
+### Scrub Copilot tip residue from PRs - and keep READMEs healthy.
 
 **Live:** [slopsweep.vercel.app](https://slopsweep.vercel.app)
 
-In March 2026, GitHub Copilot injected promotional “tips” into pull request descriptions — Raycast, Slack, Teams, VS Code, JetBrains, Eclipse, and more. Many were wrapped in a hidden HTML comment:
+In March 2026, GitHub Copilot injected promotional “tips” into pull request descriptions - Raycast, Slack, Teams, VS Code, JetBrains, Eclipse, and more. Many were wrapped in a hidden HTML comment:
 
 ```html
 <!-- START COPILOT CODING AGENT TIPS -->
@@ -26,7 +26,7 @@ Public reporting put the blast radius at roughly **11,000+** PRs for a single ti
 | **Org mode** | Filter by owner / collaborator / organization |
 | **README health** | Score READMEs: missing, thin, TODOs, tip residue |
 | **AI README writer** | Draft or improve READMEs by scanning repo code (no API key required) |
-| **Public inspect** | Paste any public PR URL — no login ([/inspect](https://slopsweep.vercel.app/inspect)) |
+| **Public inspect** | Paste any public PR URL - no login ([/inspect](https://slopsweep.vercel.app/inspect)) |
 | **History + undo** | Local clean history; restore a previous PR body |
 | **Stats** | Session counters for portfolio screenshots ([/stats](https://slopsweep.vercel.app/stats)) |
 | **GitHub Actions** | PR tip-check comments + weekly reminder workflow |
@@ -56,8 +56,8 @@ Try Raycast to spin up Copilot…       - [x] Log in
 | Force-push / rewrite commits | **Never** |
 | Create or close PRs | **Never** |
 | List repos / read PR bodies | Yes (scan) |
-| Edit a PR **description** only | Yes — after confirm |
-| Create/update `README.md` | Yes — after confirm (AI draft / tip clean) |
+| Edit a PR **description** only | Yes - after confirm |
+| Create/update `README.md` | Yes - after confirm (AI draft / tip clean) |
 
 **Scan is read-only.** Writes are opt-in and scoped. OAuth scopes: `read:user` + `repo`. Revoke anytime in GitHub → Settings → Applications.
 
@@ -138,7 +138,7 @@ Logic: [`src/lib/detectors.ts`](src/lib/detectors.ts) (unit tested).
 
 1. **Marker blocks** between `START COPILOT CODING AGENT TIPS` and matching `END`
 2. **Known promo phrases** (Raycast, Slack, Teams, VS Code, Visual Studio, JetBrains, Eclipse)
-3. **Cleanup** — strip matches, collapse leftover blank lines
+3. **Cleanup** - strip matches, collapse leftover blank lines
 
 Conservative on purpose: markers + known phrases, not fuzzy “this might be an ad” guesses.
 
@@ -250,4 +250,4 @@ SlopSweep is an unofficial community tool. Not affiliated with GitHub or Microso
 
 ## License
 
-MIT — use it, fork it, ship it on your portfolio.
+MIT - use it, fork it, ship it on your portfolio.
