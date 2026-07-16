@@ -16,6 +16,28 @@ Public reporting put the blast radius at roughly **11,000+** PRs for a single ti
 
 ---
 
+## Screenshots
+
+### Landing
+
+![SlopSweep landing page](docs/screenshots/home.png)
+
+*Home page: problem summary, feature grid, and links into the dashboard, public inspect, and stats.*
+
+### Public inspect
+
+![SlopSweep public inspect](docs/screenshots/inspect.png)
+
+*Paste any public PR URL and scan for Copilot tip residue with no login required.*
+
+### Session stats
+
+![SlopSweep session stats](docs/screenshots/stats.png)
+
+*Local session counters for scans and cleans - handy for portfolio screenshots.*
+
+---
+
 ## Features
 
 | Area | What you get |
